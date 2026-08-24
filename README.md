@@ -13,7 +13,7 @@ The solution is split into a privileged backend and a least-privileged interacti
 
 ## Intune deployment
 
-1. Replace the repository placeholders and signer thumbprint, then sign all scripts with an enterprise code-signing certificate trusted by the devices.
+1. Replace the placeholder signer thumbprint, then sign all scripts with an enterprise code-signing certificate trusted by the devices.
 2. Deploy and run `Install-SecurityFeatureMonitor.ps1` elevated once.
 3. Run `SecurityFeatureMonitor-Backend.ps1` as the privileged Intune detection/remediation component.
 4. Configure 64-bit PowerShell.
