@@ -12,6 +12,7 @@ $statePath = Join-Path $RootPath 'State.json'
 $userDataPath = Join-Path $env:LOCALAPPDATA 'SecurityFeatureMonitor'
 $lastAlertPath = Join-Path $userDataPath 'LastAlertUtc.txt'
 $lastTestActivationPath = Join-Path $userDataPath 'LastTestActivationId.txt'
+$lastRecoveryAlertPath = Join-Path $userDataPath 'LastRecoveryAlertId.txt'
 
 function Get-MonitorState {
     if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) { return $null }
@@ -31,6 +32,10 @@ function Test-AlertDue {
     param([Parameter(Mandatory)]$State)
     if ($ForceDisplay) { return $true }
     if ([bool]$State.IsCompliant) { return $false }
+    if (-not [string]::IsNullOrWhiteSpace([string]$State.RecoveryAlertId)) {
+        $lastRecoveryAlert = Get-Content -LiteralPath $lastRecoveryAlertPath -Raw -ErrorAction SilentlyContinue
+        if ([string]$lastRecoveryAlert -ne [string]$State.RecoveryAlertId) { return $true }
+    }
     if ([string]$State.Zone -eq 'Grace') { return $false }
     if ([bool]$State.IsTestMode -and -not [string]::IsNullOrWhiteSpace([string]$State.TestActivationId)) {
         $lastActivation = Get-Content -LiteralPath $lastTestActivationPath -Raw -ErrorAction SilentlyContinue
@@ -49,9 +54,12 @@ function Set-LastAlertTime {
     param([Parameter(Mandatory)]$State)
     if (-not (Test-Path -LiteralPath $userDataPath -PathType Container)) { New-Item -Path $userDataPath -ItemType Directory -Force | Out-Null }
     (Get-Date).ToUniversalTime().ToString('o') | Set-Content -LiteralPath $lastAlertPath -Encoding ASCII -Force
-    if (-not [bool]$State.IsTestMode) { return }
-    if ([string]::IsNullOrWhiteSpace([string]$State.TestActivationId)) { return }
-    [string]$State.TestActivationId | Set-Content -LiteralPath $lastTestActivationPath -Encoding ASCII -Force
+    if ([bool]$State.IsTestMode -and -not [string]::IsNullOrWhiteSpace([string]$State.TestActivationId)) {
+        [string]$State.TestActivationId | Set-Content -LiteralPath $lastTestActivationPath -Encoding ASCII -Force
+    }
+    if (-not [string]::IsNullOrWhiteSpace([string]$State.RecoveryAlertId)) {
+        [string]$State.RecoveryAlertId | Set-Content -LiteralPath $lastRecoveryAlertPath -Encoding ASCII -Force
+    }
 }
 
 function Invoke-MinimizeAllWindows {
