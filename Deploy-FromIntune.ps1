@@ -59,8 +59,15 @@ try {
     }
 
     $installer = Join-Path $StagingDirectory 'Install-SecurityFeatureMonitor.ps1'
-    & $installer -SourceDirectory $StagingDirectory -Version ([string]$manifest.Version) -RecoveryMode
-    if ($LASTEXITCODE -ne 0) { throw "Installer exit code: $LASTEXITCODE" }
+    $installerArguments = @(
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+        '-File', $installer,
+        '-SourceDirectory', $StagingDirectory,
+        '-Version', [string]$manifest.Version,
+        '-RecoveryMode'
+    )
+    $installerProcess = Start-Process -FilePath 'powershell.exe' -ArgumentList $installerArguments -WindowStyle Hidden -Wait -PassThru
+    if ($installerProcess.ExitCode -ne 0) { throw "Installer exit code: $($installerProcess.ExitCode)" }
 
     Write-RemediationResult -Result @{
         Schema = 1
