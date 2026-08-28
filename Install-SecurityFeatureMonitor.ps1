@@ -2,7 +2,7 @@
 param(
     [string]$SourceDirectory = $PSScriptRoot,
     [string]$InstallDirectory = 'C:\ProgramData\SecurityFeatureMonitor',
-    [string]$StateDirectory = 'C:\Windows\Logs\SecurityCheck',
+    [string]$StateDirectory = 'C:\ProgramData\SecurityFeatureMonitor\State',
     [string]$Version = '0.0.0',
     [switch]$RecoveryMode
 )
@@ -18,9 +18,18 @@ function Assert-SystemOrAdministrator {
 }
 
 function Initialize-Directories {
-    foreach ($directory in @($InstallDirectory, $StateDirectory)) {
+    foreach ($directory in @($InstallDirectory, $StateDirectory, (Join-Path $InstallDirectory 'media'), (Join-Path $InstallDirectory 'Staging'))) {
         if (Test-Path -LiteralPath $directory -PathType Container) { continue }
         New-Item -Path $directory -ItemType Directory -Force | Out-Null
+    }
+}
+
+function Move-LegacyState {
+    $legacyStateDirectory = 'C:\Windows\Logs\SecurityCheck'
+    $legacyFailureTime = Join-Path $legacyStateDirectory 'FirstFailureTime.txt'
+    $newFailureTime = Join-Path $StateDirectory 'FirstFailureTime.txt'
+    if ((Test-Path -LiteralPath $legacyFailureTime -PathType Leaf) -and -not (Test-Path -LiteralPath $newFailureTime)) {
+        Copy-Item -LiteralPath $legacyFailureTime -Destination $newFailureTime -Force
     }
 }
 
@@ -29,8 +38,9 @@ function Install-Files {
         @{ Source = 'SecurityFeatureMonitor-UI.ps1'; Destination = (Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI.ps1') },
         @{ Source = 'Set-SecurityFeatureMonitorTestMode.ps1'; Destination = (Join-Path $InstallDirectory 'Set-SecurityFeatureMonitorTestMode.ps1') },
         @{ Source = 'SecurityFeatureMonitor-Backend.ps1'; Destination = (Join-Path $InstallDirectory 'SecurityFeatureMonitor-Backend.cached.ps1') },
-        @{ Source = 'media\bip.wav'; Destination = (Join-Path $StateDirectory 'bip.wav') },
-        @{ Source = 'media\alarm.mp3'; Destination = (Join-Path $StateDirectory 'alarm.mp3') }
+        @{ Source = 'manifest.json'; Destination = (Join-Path $InstallDirectory 'manifest.json') },
+        @{ Source = 'media\bip.wav'; Destination = (Join-Path $InstallDirectory 'media\bip.wav') },
+        @{ Source = 'media\alarm.mp3'; Destination = (Join-Path $InstallDirectory 'media\alarm.mp3') }
     )
     foreach ($item in $mapping) {
         $sourcePath = Join-Path $SourceDirectory $item.Source
@@ -43,8 +53,6 @@ function Install-Files {
 function Set-SecureAcls {
     & icacls.exe $InstallDirectory /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Failed to secure the installation directory.' }
-    & icacls.exe $StateDirectory /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Failed to secure the state directory.' }
 }
 
 function Register-UserInterfaceTask {
@@ -79,13 +87,23 @@ function Invoke-ImmediateComplianceCheck {
     if ($process.ExitCode -notin @(0, 1)) { throw "Backend immediate check failed with exit code $($process.ExitCode)." }
 }
 
+function Remove-LegacyDirectories {
+    foreach ($legacyDirectory in @('C:\Windows\Logs\SecurityCheck', 'C:\ProgramData\SecurityFeatureMonitor-Staging')) {
+        if (Test-Path -LiteralPath $legacyDirectory -PathType Container) {
+            Remove-Item -LiteralPath $legacyDirectory -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 Assert-SystemOrAdministrator
 Initialize-Directories
+Move-LegacyState
 Install-Files
 Set-SecureAcls
 Register-BackendTask
 Register-UserInterfaceTask
 Invoke-ImmediateComplianceCheck
 Start-ScheduledTask -TaskName 'SecurityFeatureMonitor-UI' -ErrorAction SilentlyContinue
+Remove-LegacyDirectories
 Write-Output "Security Feature Monitor version $Version installed successfully."
 exit 0

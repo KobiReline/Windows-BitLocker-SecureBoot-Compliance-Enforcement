@@ -2,7 +2,7 @@
 param(
     [string]$RepositoryRawBaseUrl = 'https://raw.githubusercontent.com/KobiReline/Windows-BitLocker-SecureBoot-Compliance-Enforcement/main',
     [string]$InstallDirectory = 'C:\ProgramData\SecurityFeatureMonitor',
-    [string]$StateDirectory = 'C:\Windows\Logs\SecurityCheck',
+    [string]$StateDirectory = 'C:\ProgramData\SecurityFeatureMonitor\State',
     [string]$ManifestName = 'manifest.json'
 )
 
@@ -18,7 +18,7 @@ function Add-Issue {
 function Get-TargetPath {
     param([Parameter(Mandatory)]$File)
     if ([string]$File.Target -eq 'Install') { return Join-Path $InstallDirectory ([string]$File.Destination) }
-    if ([string]$File.Target -eq 'State') { return Join-Path $StateDirectory ([string]$File.Destination) }
+    if ([string]$File.Target -eq 'Media') { return Join-Path (Join-Path $InstallDirectory 'media') ([string]$File.Destination) }
     return $null
 }
 
@@ -75,8 +75,9 @@ $requiredFallback = @(
     (Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI.ps1'),
     (Join-Path $InstallDirectory 'Set-SecurityFeatureMonitorTestMode.ps1'),
     (Join-Path $InstallDirectory 'Version.txt'),
-    (Join-Path $StateDirectory 'bip.wav'),
-    (Join-Path $StateDirectory 'alarm.mp3')
+    (Join-Path $InstallDirectory 'manifest.json'),
+    (Join-Path $InstallDirectory 'media\bip.wav'),
+    (Join-Path $InstallDirectory 'media\alarm.mp3')
 )
 foreach ($path in $requiredFallback) {
     if (Test-Path -LiteralPath $path -PathType Leaf) { continue }
@@ -91,9 +92,6 @@ if ($null -ne $manifest) {
         if ((Get-FileHash -LiteralPath $targetPath -Algorithm SHA256).Hash -eq [string]$file.Sha256) { continue }
         Add-Issue -Issues $issues -Value "HashMismatch:$([string]$file.Destination)"
     }
-    $versionPath = Join-Path $InstallDirectory 'Version.txt'
-    $installedVersion = Get-Content -LiteralPath $versionPath -Raw -ErrorAction SilentlyContinue
-    if (([string]$installedVersion).Trim() -ne [string]$manifest.Version) { Add-Issue -Issues $issues -Value 'VersionMismatch' }
 }
 
 Test-TaskDefinitions -Issues $issues

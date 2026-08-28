@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$RootPath = 'C:\Windows\Logs\SecurityCheck',
+    [string]$RootPath = 'C:\ProgramData\SecurityFeatureMonitor\State',
+    [string]$InstallPath = 'C:\ProgramData\SecurityFeatureMonitor',
     [string]$RegistryPath = 'HKLM:\SOFTWARE\CustomSecurityCheck',
     [string]$BackendTaskName = 'Intune-SecurityFeatureMonitor',
     [string]$RepositoryRawBaseUrl = 'https://raw.githubusercontent.com/KobiReline/Windows-BitLocker-SecureBoot-Compliance-Enforcement/main',
@@ -15,10 +16,11 @@ $ErrorActionPreference = 'Stop'
 $script:ExclusionKeys = @('ManualManagement', 'VIP_Device', 'AdminException', 'LabMachine')
 $script:StatePath = Join-Path $RootPath 'State.json'
 $script:FailureTimePath = Join-Path $RootPath 'FirstFailureTime.txt'
-$script:BeepPath = Join-Path $RootPath 'bip.wav'
-$script:AlarmPath = Join-Path $RootPath 'alarm.mp3'
-$script:BeepSha256 = 'B4C3B580A90E8796B869C07767D82D02F4C273729EBF131806042C2BA7BC4470'
-$script:AlarmSha256 = '6043D5644C97CB14AA457F9AC7988139F34F43EACA9ECB192B835239A1A70FC9'
+$script:ManifestPath = Join-Path $InstallPath 'manifest.json'
+$script:BeepPath = Join-Path $InstallPath 'media\bip.wav'
+$script:AlarmPath = Join-Path $InstallPath 'media\alarm.mp3'
+$script:BeepSha256 = $null
+$script:AlarmSha256 = $null
 
 function Assert-Administrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -29,6 +31,8 @@ function Assert-Administrator {
 
 function Initialize-BackendStorage {
     if (-not (Test-Path -LiteralPath $RootPath)) { New-Item -Path $RootPath -ItemType Directory -Force | Out-Null }
+    $mediaPath = Join-Path $InstallPath 'media'
+    if (-not (Test-Path -LiteralPath $mediaPath)) { New-Item -Path $mediaPath -ItemType Directory -Force | Out-Null }
     if (-not (Test-Path -LiteralPath $RegistryPath)) { New-Item -Path $RegistryPath -Force | Out-Null }
 }
 
@@ -184,6 +188,17 @@ function Invoke-AssetDownload {
 }
 
 function Initialize-AudioAssets {
+    if (-not (Test-Path -LiteralPath $script:ManifestPath -PathType Leaf)) {
+        Write-Warning 'Local manifest is unavailable; audio validation and download were skipped.'
+        return
+    }
+    try { $manifest = Get-Content -LiteralPath $script:ManifestPath -Raw | ConvertFrom-Json -ErrorAction Stop }
+    catch { Write-Warning "Local manifest is invalid; audio validation and download were skipped. $($_.Exception.Message)"; return }
+    $beepEntry = @($manifest.Files | Where-Object { [string]$_.Source -eq 'media/bip.wav' }) | Select-Object -First 1
+    $alarmEntry = @($manifest.Files | Where-Object { [string]$_.Source -eq 'media/alarm.mp3' }) | Select-Object -First 1
+    if ($null -eq $beepEntry -or $null -eq $alarmEntry) { Write-Warning 'Audio entries are missing from the local manifest.'; return }
+    $script:BeepSha256 = [string]$beepEntry.Sha256
+    $script:AlarmSha256 = [string]$alarmEntry.Sha256
     $baseUrl = $RepositoryRawBaseUrl.TrimEnd('/')
     [void](Invoke-AssetDownload -Url "$baseUrl/media/bip.wav" -Destination $script:BeepPath -ExpectedSha256 $script:BeepSha256)
     [void](Invoke-AssetDownload -Url "$baseUrl/media/alarm.mp3" -Destination $script:AlarmPath -ExpectedSha256 $script:AlarmSha256)

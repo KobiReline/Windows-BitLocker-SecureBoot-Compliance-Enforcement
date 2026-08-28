@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$RootPath = 'C:\Windows\Logs\SecurityCheck',
+    [string]$RootPath = 'C:\ProgramData\SecurityFeatureMonitor\State',
     [switch]$ForceDisplay,
     [switch]$ForceAudio
 )

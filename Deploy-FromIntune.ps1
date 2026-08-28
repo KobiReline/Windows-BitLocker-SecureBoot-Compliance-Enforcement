@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$RepositoryRawBaseUrl = 'https://raw.githubusercontent.com/KobiReline/Windows-BitLocker-SecureBoot-Compliance-Enforcement/main',
-    [string]$StagingDirectory = 'C:\ProgramData\SecurityFeatureMonitor-Staging',
+    [string]$StagingDirectory = 'C:\ProgramData\SecurityFeatureMonitor\Staging',
     [string]$ManifestName = 'manifest.json'
 )
 
@@ -57,7 +57,6 @@ try {
     foreach ($file in $manifest.Files) {
         Save-VerifiedRepositoryFile -RelativePath ([string]$file.Source) -ExpectedSha256 ([string]$file.Sha256)
     }
-
     $installer = Join-Path $StagingDirectory 'Install-SecurityFeatureMonitor.ps1'
     $installerArguments = @(
         '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',

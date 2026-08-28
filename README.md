@@ -28,13 +28,30 @@ The remediation script downloads `manifest.json`, validates every downloaded fil
 
 After self-healing, a noncompliant device displays one immediate UI alert without audio. A later regular critical-state backend run restores normal audio behavior.
 
-The backend task runs as SYSTEM at startup and hourly. The UI task runs for logged-on users at logon and every five minutes. State and media are stored under `C:\Windows\Logs\SecurityCheck`.
+The backend task runs as SYSTEM at startup and hourly. The UI task runs for logged-on users at logon and every five minutes. Every machine-wide component is kept below one root:
+
+- `C:\ProgramData\SecurityFeatureMonitor` - installed scripts, local manifest and version label
+- `C:\ProgramData\SecurityFeatureMonitor\State` - generated compliance state and failure timestamp
+- `C:\ProgramData\SecurityFeatureMonitor\media` - validated local audio
+- `C:\ProgramData\SecurityFeatureMonitor\Staging` - verified Intune remediation downloads
 
 ## Important behavior
 
 Media files are checked during the first backend run and every later run. A missing file or a file whose SHA-256 is wrong is downloaded again. A valid file is not downloaded again. If the device is offline and no valid audio file exists, the visual alert still works.
 
-`manifest.json` is the update contract. To publish a new version, change the scripts, update their SHA-256 values in the manifest, and increment `Version`. The next daily Intune detection reports `VersionMismatch` or `HashMismatch`; remediation then installs the new version.
+`manifest.json` is the update contract. After changing an installed script or media file, update its SHA-256 value in the manifest. The next daily Intune detection reports `HashMismatch`, and remediation installs the changed content. `Version` is a human-readable release label for inventory and troubleshooting; it is recommended for a planned release but is not required to deploy a small fix. Hashes, not the version label, decide whether repair is required.
+
+The backend reads the media hashes from its installed copy of `manifest.json`; media hashes are not duplicated in backend source code.
+
+`Detect-SecurityFeatureMonitor.ps1` and `Deploy-FromIntune.ps1` are the small Intune entry points. They are stored directly in the Intune Remediations package rather than installed on endpoints. A change to either file must therefore be uploaded to the Intune package. Changes to installer/backend/UI/test-mode/media files are distributed through the manifest and GitHub.
+
+## Post-deployment tests
+
+`TEST/Invoke-SecurityFeatureMonitorTests.ps1` is a single read-only test runner. Run it in 64-bit Windows PowerShell as Administrator. Green is valid, yellow is informational or needs attention, and red is invalid. The script explains the received and expected value for every check and exits `0` on pass or `1` on failure.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\TEST\Invoke-SecurityFeatureMonitorTests.ps1
+```
 
 Intune retains the latest per-device pre-remediation output, post-remediation output, execution time and run states. It does not provide a complete immutable per-device history of every old output. The JSON schema is intentionally stable so a future central Microsoft Graph collector can archive results without changing the endpoint scripts.
 
