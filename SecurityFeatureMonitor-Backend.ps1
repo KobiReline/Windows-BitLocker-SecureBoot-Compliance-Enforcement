@@ -4,8 +4,9 @@ param(
     [string]$RegistryPath = 'HKLM:\SOFTWARE\CustomSecurityCheck',
     [string]$BackendTaskName = 'Intune-SecurityFeatureMonitor',
     [string]$RepositoryRawBaseUrl = 'https://raw.githubusercontent.com/KobiReline/Windows-BitLocker-SecureBoot-Compliance-Enforcement/main',
-    [string]$BootstrapPath = 'C:\ProgramData\SecurityFeatureMonitor\Invoke-SecurityFeatureMonitor.ps1',
-    [string]$TrustedSignerThumbprint = '0000000000000000000000000000000000000000',
+    [ValidateSet('None', 'Healthy', 'Grace', 'Warning', 'Critical')]
+    [string]$TestScenario = 'None',
+    [ValidateRange(1, 1440)][int]$TestAlertIntervalMinutes = 1,
     [switch]$InstallScheduledTask
 )
 
@@ -36,6 +37,20 @@ function Test-DeviceExcluded {
         if ([string]$value -ieq 'True') { return $true }
     }
     return $false
+}
+
+function Import-TestConfiguration {
+    if ($TestScenario -ne 'None') { return }
+    $enabled = Get-ItemPropertyValue -Path $RegistryPath -Name TestModeEnabled -ErrorAction SilentlyContinue
+    if ([string]$enabled -ne '1') { return }
+    $configuredScenario = [string](Get-ItemPropertyValue -Path $RegistryPath -Name TestScenario -ErrorAction SilentlyContinue)
+    if ($configuredScenario -notin @('Healthy', 'Grace', 'Warning', 'Critical')) { return }
+    $script:EffectiveTestScenario = $configuredScenario
+    $script:EffectiveTestActivationId = [string](Get-ItemPropertyValue -Path $RegistryPath -Name TestActivationId -ErrorAction SilentlyContinue)
+    $configuredInterval = Get-ItemPropertyValue -Path $RegistryPath -Name TestAlertIntervalMinutes -ErrorAction SilentlyContinue
+    if ($null -eq $configuredInterval) { return }
+    if ([int]$configuredInterval -lt 1 -or [int]$configuredInterval -gt 1440) { return }
+    $script:EffectiveTestAlertIntervalMinutes = [int]$configuredInterval
 }
 
 function Get-SecureBootState {
@@ -103,12 +118,15 @@ function Save-ComplianceState {
         [Parameter(Mandatory)][string]$Zone,
         [Parameter(Mandatory)][bool]$SecureBoot,
         [Parameter(Mandatory)][bool]$BitLocker,
-        [AllowNull()][Nullable[datetime]]$FirstFailureTime
+        [AllowNull()][Nullable[datetime]]$FirstFailureTime,
+        [bool]$IsTestMode = $false
     )
 
-    $interval = Get-NextIntervalMinutes -Zone $Zone
+    $interval = if ($IsTestMode) { $script:EffectiveTestAlertIntervalMinutes } else { Get-NextIntervalMinutes -Zone $Zone }
     $state = @{
         SchemaVersion = 1
+        IsTestMode = $IsTestMode
+        TestActivationId = if ($IsTestMode) { $script:EffectiveTestActivationId } else { $null }
         GeneratedUtc = (Get-Date).ToUniversalTime().ToString('o')
         Zone = $Zone
         IsCompliant = ($Zone -in @('Healthy', 'Excluded'))
@@ -171,10 +189,11 @@ function Initialize-AudioAssets {
 function Set-BackendScheduledTask {
     param([Parameter(Mandatory)][string]$Zone)
 
-    $backendUrl = "$($RepositoryRawBaseUrl.TrimEnd('/'))/SecurityFeatureMonitor-Backend.ps1"
-    $arguments = "-NoProfile -NonInteractive -ExecutionPolicy AllSigned -File `"$BootstrapPath`" -BackendScriptUrl `"$backendUrl`" -RepositoryRawBaseUrl `"$RepositoryRawBaseUrl`" -TrustedSignerThumbprint `"$TrustedSignerThumbprint`""
+    $backendPath = $PSCommandPath
+    $arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$backendPath`" -RepositoryRawBaseUrl `"$RepositoryRawBaseUrl`""
+    if ($TestScenario -ne 'None') { $arguments += " -TestScenario $TestScenario -TestAlertIntervalMinutes $TestAlertIntervalMinutes" }
     $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments
-    $principal = New-ScheduledTaskPrincipal -GroupId 'BUILTIN\Administrators' -RunLevel Highest
+    $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
     $triggers = if ($Zone -in @('Healthy', 'Excluded')) {
         @((New-ScheduledTaskTrigger -Daily -At '12:00'), (New-ScheduledTaskTrigger -AtLogOn))
@@ -188,7 +207,20 @@ function Set-BackendScheduledTask {
 function Invoke-BackendPipeline {
     Assert-Administrator
     Initialize-BackendStorage
+    $script:EffectiveTestScenario = $TestScenario
+    $script:EffectiveTestAlertIntervalMinutes = $TestAlertIntervalMinutes
+    $script:EffectiveTestActivationId = [guid]::NewGuid().ToString()
+    Import-TestConfiguration
     Initialize-AudioAssets
+
+    if ($script:EffectiveTestScenario -ne 'None') {
+        $testSecureBoot = $script:EffectiveTestScenario -eq 'Healthy'
+        $testBitLocker = $script:EffectiveTestScenario -eq 'Healthy'
+        $testFailureTime = if ($script:EffectiveTestScenario -in @('Grace', 'Warning', 'Critical')) { Get-Date } else { $null }
+        Save-ComplianceState -Zone $script:EffectiveTestScenario -SecureBoot $testSecureBoot -BitLocker $testBitLocker -FirstFailureTime $testFailureTime -IsTestMode $true
+        if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone $script:EffectiveTestScenario }
+        return 0
+    }
 
     if (Test-DeviceExcluded) {
         Remove-FailureTracking
