@@ -24,15 +24,6 @@ function Initialize-Directories {
     }
 }
 
-function Move-LegacyState {
-    $legacyStateDirectory = 'C:\Windows\Logs\SecurityCheck'
-    $legacyFailureTime = Join-Path $legacyStateDirectory 'FirstFailureTime.txt'
-    $newFailureTime = Join-Path $StateDirectory 'FirstFailureTime.txt'
-    if ((Test-Path -LiteralPath $legacyFailureTime -PathType Leaf) -and -not (Test-Path -LiteralPath $newFailureTime)) {
-        Copy-Item -LiteralPath $legacyFailureTime -Destination $newFailureTime -Force
-    }
-}
-
 function Install-Files {
     $mapping = @(
         @{ Source = 'SecurityFeatureMonitor-UI.ps1'; Destination = (Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI.ps1') },
@@ -87,23 +78,13 @@ function Invoke-ImmediateComplianceCheck {
     if ($process.ExitCode -notin @(0, 1)) { throw "Backend immediate check failed with exit code $($process.ExitCode)." }
 }
 
-function Remove-LegacyDirectories {
-    foreach ($legacyDirectory in @('C:\Windows\Logs\SecurityCheck', 'C:\ProgramData\SecurityFeatureMonitor-Staging')) {
-        if (Test-Path -LiteralPath $legacyDirectory -PathType Container) {
-            Remove-Item -LiteralPath $legacyDirectory -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    }
-}
-
 Assert-SystemOrAdministrator
 Initialize-Directories
-Move-LegacyState
 Install-Files
 Set-SecureAcls
 Register-BackendTask
 Register-UserInterfaceTask
 Invoke-ImmediateComplianceCheck
 Start-ScheduledTask -TaskName 'SecurityFeatureMonitor-UI' -ErrorAction SilentlyContinue
-Remove-LegacyDirectories
 Write-Output "Security Feature Monitor version $Version installed successfully."
 exit 0

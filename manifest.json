@@ -6,7 +6,7 @@
       "Source": "Install-SecurityFeatureMonitor.ps1",
       "Target": "Staging",
       "Destination": "Install-SecurityFeatureMonitor.ps1",
-      "Sha256": "8DD7017D49385CBCBCE5491C3951145EAABC18F5B0246E16D20034F053FB76E5"
+      "Sha256": "42A1E87A996956B1231930E8B30BEAAEE3FFE5C86A0D5B3F17C3EC01A3246CE0"
     },
     {
       "Source": "SecurityFeatureMonitor-Backend.ps1",
