@@ -7,21 +7,36 @@ The solution uses two security contexts:
 
 No Win32 app packaging or code-signing certificate is required by the current version. Scripts run locally with `ExecutionPolicy Bypass`. The installed directory is writable only by Administrators and SYSTEM. Signing or pinning script hashes is recommended before broad production use.
 
-## Intune deployment
+## Intune Remediations deployment
 
-Create a Windows PowerShell platform script from `Deploy-FromIntune.ps1` and configure:
+Create one Intune Remediations package and upload:
+
+- Detection script: `Detect-SecurityFeatureMonitor.ps1`
+- Remediation script: `Deploy-FromIntune.ps1`
+
+Configure:
 
 - Run this script using the logged-on credentials: **No**
 - Enforce script signature check: **No**
 - Run script in 64-bit PowerShell host: **Yes**
 
-The deployment script downloads the current project files from GitHub, installs them under `C:\ProgramData\SecurityFeatureMonitor`, creates both scheduled tasks and starts the first backend check immediately.
+- Schedule: **Daily**
+
+The detection script checks the installed version, every installed file SHA-256, both media assets, and the backend/UI scheduled-task definitions. It writes compact JSON to Intune as the pre-remediation or post-remediation detection output.
+
+The remediation script downloads `manifest.json`, validates every downloaded file against the manifest, installs the files under `C:\ProgramData\SecurityFeatureMonitor`, recreates both scheduled tasks and runs an immediate backend check. The backend runs as SYSTEM and writes state only. The UI task is then triggered in the logged-on user's context.
+
+After self-healing, a noncompliant device displays one immediate UI alert without audio. A later regular critical-state backend run restores normal audio behavior.
 
 The backend task runs as SYSTEM at startup and hourly. The UI task runs for logged-on users at logon and every five minutes. State and media are stored under `C:\Windows\Logs\SecurityCheck`.
 
 ## Important behavior
 
 Media files are checked during the first backend run and every later run. A missing file or a file whose SHA-256 is wrong is downloaded again. A valid file is not downloaded again. If the device is offline and no valid audio file exists, the visual alert still works.
+
+`manifest.json` is the update contract. To publish a new version, change the scripts, update their SHA-256 values in the manifest, and increment `Version`. The next daily Intune detection reports `VersionMismatch` or `HashMismatch`; remediation then installs the new version.
+
+Intune retains the latest per-device pre-remediation output, post-remediation output, execution time and run states. It does not provide a complete immutable per-device history of every old output. The JSON schema is intentionally stable so a future central Microsoft Graph collector can archive results without changing the endpoint scripts.
 
 ## Test mode
 
