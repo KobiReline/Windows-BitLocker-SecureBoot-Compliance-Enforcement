@@ -1,5 +1,9 @@
 [CmdletBinding()]
-param([string]$RootPath = 'C:\Windows\Logs\SecurityCheck')
+param(
+    [string]$RootPath = 'C:\Windows\Logs\SecurityCheck',
+    [switch]$ForceDisplay,
+    [switch]$ForceAudio
+)
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName PresentationCore
@@ -7,6 +11,7 @@ Add-Type -AssemblyName System.Windows.Forms
 $statePath = Join-Path $RootPath 'State.json'
 $userDataPath = Join-Path $env:LOCALAPPDATA 'SecurityFeatureMonitor'
 $lastAlertPath = Join-Path $userDataPath 'LastAlertUtc.txt'
+$lastTestActivationPath = Join-Path $userDataPath 'LastTestActivationId.txt'
 
 function Get-MonitorState {
     if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) { return $null }
@@ -24,8 +29,13 @@ function Get-MonitorState {
 
 function Test-AlertDue {
     param([Parameter(Mandatory)]$State)
+    if ($ForceDisplay) { return $true }
     if ([bool]$State.IsCompliant) { return $false }
     if ([string]$State.Zone -eq 'Grace') { return $false }
+    if ([bool]$State.IsTestMode -and -not [string]::IsNullOrWhiteSpace([string]$State.TestActivationId)) {
+        $lastActivation = Get-Content -LiteralPath $lastTestActivationPath -Raw -ErrorAction SilentlyContinue
+        if ([string]$lastActivation -ne [string]$State.TestActivationId) { return $true }
+    }
     if (-not (Test-Path -LiteralPath $lastAlertPath -PathType Leaf)) { return $true }
 
     $lastAlertUtc = [datetime]::MinValue
@@ -36,8 +46,12 @@ function Test-AlertDue {
 }
 
 function Set-LastAlertTime {
+    param([Parameter(Mandatory)]$State)
     if (-not (Test-Path -LiteralPath $userDataPath -PathType Container)) { New-Item -Path $userDataPath -ItemType Directory -Force | Out-Null }
     (Get-Date).ToUniversalTime().ToString('o') | Set-Content -LiteralPath $lastAlertPath -Encoding ASCII -Force
+    if (-not [bool]$State.IsTestMode) { return }
+    if ([string]::IsNullOrWhiteSpace([string]$State.TestActivationId)) { return }
+    [string]$State.TestActivationId | Set-Content -LiteralPath $lastTestActivationPath -Encoding ASCII -Force
 }
 
 function Invoke-MinimizeAllWindows {
@@ -203,8 +217,11 @@ function Show-ComplianceDialog {
     try { $result = $form.ShowDialog() }
     finally {
         $form.remove_Shown($shownHandler)
-        Close-AudioSequence -Sequence $AudioSequence
         $form.Dispose()
+    }
+    while ($null -ne $AudioSequence -and -not $AudioSequence.IsDisposed) {
+        [Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 25
     }
     if ($result -ne [Windows.Forms.DialogResult]::OK) { return }
     $intervalText = if ([string]$State.Zone -eq 'Critical') { '5 דקות' } else { 'שעה' }
@@ -215,10 +232,10 @@ function Invoke-UiPipeline {
     $state = Get-MonitorState
     if ($null -eq $state) { return 0 }
     if (-not (Test-AlertDue -State $state)) { return 0 }
-    Set-LastAlertTime
+    Set-LastAlertTime -State $state
     if ([bool]$state.MinimizeWindows) { Invoke-MinimizeAllWindows }
     if ([bool]$state.MaximizeVolume) { Set-MaximumVolume }
-    $audioSequence = if ([bool]$state.PlayAudio) { New-AudioSequence -State $state } else { $null }
+    $audioSequence = if ([bool]$state.PlayAudio -or $ForceAudio) { New-AudioSequence -State $state } else { $null }
     Show-ComplianceDialog -State $state -AudioSequence $audioSequence
     return 0
 }
