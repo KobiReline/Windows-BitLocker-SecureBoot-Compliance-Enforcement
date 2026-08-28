@@ -7,6 +7,7 @@ param(
     [ValidateSet('None', 'Healthy', 'Grace', 'Warning', 'Critical')]
     [string]$TestScenario = 'None',
     [ValidateRange(1, 1440)][int]$TestAlertIntervalMinutes = 1,
+    [switch]$SuppressAudioOnce,
     [switch]$InstallScheduledTask
 )
 
@@ -119,7 +120,8 @@ function Save-ComplianceState {
         [Parameter(Mandatory)][bool]$SecureBoot,
         [Parameter(Mandatory)][bool]$BitLocker,
         [AllowNull()][Nullable[datetime]]$FirstFailureTime,
-        [bool]$IsTestMode = $false
+        [bool]$IsTestMode = $false,
+        [bool]$IsRecoveryAlert = $false
     )
 
     $interval = if ($IsTestMode) { $script:EffectiveTestAlertIntervalMinutes } else { Get-NextIntervalMinutes -Zone $Zone }
@@ -127,6 +129,7 @@ function Save-ComplianceState {
         SchemaVersion = 1
         IsTestMode = $IsTestMode
         TestActivationId = if ($IsTestMode) { $script:EffectiveTestActivationId } else { $null }
+        RecoveryAlertId = if ($IsRecoveryAlert) { [guid]::NewGuid().ToString() } else { $null }
         GeneratedUtc = (Get-Date).ToUniversalTime().ToString('o')
         Zone = $Zone
         IsCompliant = ($Zone -in @('Healthy', 'Excluded'))
@@ -136,7 +139,7 @@ function Save-ComplianceState {
         AlertIntervalMinutes = $interval
         MinimizeWindows = ($Zone -in @('Warning', 'Critical'))
         MaximizeVolume = ($Zone -eq 'Critical')
-        PlayAudio = ($Zone -eq 'Critical')
+        PlayAudio = (($Zone -eq 'Critical') -and -not $IsRecoveryAlert)
         BeepPath = $script:BeepPath
         AlarmPath = $script:AlarmPath
         BeepRepeatCount = 2
@@ -240,7 +243,7 @@ function Invoke-BackendPipeline {
 
     $firstFailure = Get-FailureTimestamp
     $zone = Get-ComplianceZone -HoursElapsed ((Get-Date) - $firstFailure).TotalHours
-    Save-ComplianceState -Zone $zone -SecureBoot $secureBoot -BitLocker $bitLocker -FirstFailureTime $firstFailure
+    Save-ComplianceState -Zone $zone -SecureBoot $secureBoot -BitLocker $bitLocker -FirstFailureTime $firstFailure -IsRecoveryAlert ([bool]$SuppressAudioOnce)
     if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone $zone }
     return 1
 }
