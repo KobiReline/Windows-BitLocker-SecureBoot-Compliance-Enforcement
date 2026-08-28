@@ -1,0 +1,42 @@
+{
+  "Schema": 1,
+  "Version": "1.2.0",
+  "Files": [
+    {
+      "Source": "Install-SecurityFeatureMonitor.ps1",
+      "Target": "Staging",
+      "Destination": "Install-SecurityFeatureMonitor.ps1",
+      "Sha256": "C50CE74A73233CB1F2369BE099AD36C6BEA285530C7183E4AE2EA7CC11632C3F"
+    },
+    {
+      "Source": "SecurityFeatureMonitor-Backend.ps1",
+      "Target": "Install",
+      "Destination": "SecurityFeatureMonitor-Backend.cached.ps1",
+      "Sha256": "457EF0360EA54E941F5CCE8BBCC0356CE48584F48FADFD72EE3A9762D6A7C51B"
+    },
+    {
+      "Source": "SecurityFeatureMonitor-UI.ps1",
+      "Target": "Install",
+      "Destination": "SecurityFeatureMonitor-UI.ps1",
+      "Sha256": "C018C51A71F21D2A20BE6247DB0DA2032ED9D90E10C655F54D016A4D46ECF86D"
+    },
+    {
+      "Source": "Set-SecurityFeatureMonitorTestMode.ps1",
+      "Target": "Install",
+      "Destination": "Set-SecurityFeatureMonitorTestMode.ps1",
+      "Sha256": "AC2975E98742EE23B5FAB24B90972D182D2BC825980B5E886702A77C759D6784"
+    },
+    {
+      "Source": "media/bip.wav",
+      "Target": "State",
+      "Destination": "bip.wav",
+      "Sha256": "B4C3B580A90E8796B869C07767D82D02F4C273729EBF131806042C2BA7BC4470"
+    },
+    {
+      "Source": "media/alarm.mp3",
+      "Target": "State",
+      "Destination": "alarm.mp3",
+      "Sha256": "6043D5644C97CB14AA457F9AC7988139F34F43EACA9ECB192B835239A1A70FC9"
+    }
+  ]
+}
