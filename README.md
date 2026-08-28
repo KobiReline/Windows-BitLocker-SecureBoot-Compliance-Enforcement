@@ -1,34 +1,49 @@
 # Windows BitLocker Secure Boot Compliance Enforcement
 
-The solution is split into a privileged backend and a least-privileged interactive UI.
+The solution uses two security contexts:
 
-## Files
+- `NT AUTHORITY\SYSTEM`: installation, compliance checks, downloads, protected state and scheduled-task management.
+- Logged-on user (`RunLevel Limited`): alert UI, window minimization, volume control and hidden audio playback only.
 
-- `SecurityFeatureMonitor-Backend.ps1`: checks Secure Boot, BitLocker and exclusions; writes `State.json` atomically.
-- `SecurityFeatureMonitor-UI.ps1`: runs in the logged-on user's limited token and reads state only.
-- `Invoke-SecurityFeatureMonitor.ps1`: downloads a signed backend, verifies its signer and falls back to a trusted local cache while offline.
-- `Install-SecurityFeatureMonitor.ps1`: installs the UI and its user-context scheduled task.
-- `media/bip.wav`: initial beep played twice.
-- `media/alarm.mp3`: alarm played three times after the beep.
+No Win32 app packaging or code-signing certificate is required by the current version. Scripts run locally with `ExecutionPolicy Bypass`. The installed directory is writable only by Administrators and SYSTEM. Signing or pinning script hashes is recommended before broad production use.
 
 ## Intune deployment
 
-1. Replace the placeholder signer thumbprint, then sign all scripts with an enterprise code-signing certificate trusted by the devices.
-2. Deploy and run `Install-SecurityFeatureMonitor.ps1` elevated once.
-3. Run `SecurityFeatureMonitor-Backend.ps1` as the privileged Intune detection/remediation component.
-4. Configure 64-bit PowerShell.
-5. Use the backend exit code: `0` compliant/excluded, `1` noncompliant.
+Create a Windows PowerShell platform script from `Deploy-FromIntune.ps1` and configure:
+
+- Run this script using the logged-on credentials: **No**
+- Enforce script signature check: **No**
+- Run script in 64-bit PowerShell host: **Yes**
+
+The deployment script downloads the current project files from GitHub, installs them under `C:\ProgramData\SecurityFeatureMonitor`, creates both scheduled tasks and starts the first backend check immediately.
+
+The backend task runs as SYSTEM at startup and hourly. The UI task runs for logged-on users at logon and every five minutes. State and media are stored under `C:\Windows\Logs\SecurityCheck`.
 
 ## Important behavior
 
-- The UI task runs as `BUILTIN\Users` with `RunLevel Limited`, including when the signed-in user is a local administrator.
-- The backend never starts an interactive process.
-- `State.json` and media assets are writable only by Administrators/SYSTEM and readable by Users.
-- Both media assets are validated during the first backend run and every later run.
-- A media asset is downloaded only when it is missing or its SHA-256 does not match the expected value.
-- A valid existing media asset is never downloaded again.
-- If a missing media asset cannot be downloaded while offline, the alert remains fully functional without that sound.
-- UI polling is every five minutes, but `AlertIntervalMinutes` in state prevents alerts before their configured interval.
-- A task using `BUILTIN\Administrators` can run only for a logged-on member of that group. It is not a reliable unattended replacement for Intune's device context.
-- The backend bootstrap verifies the exact trusted Authenticode signer before replacing its cache and falls back to the last trusted copy while offline.
-- Direct `Invoke-Expression` of unsigned GitHub content is intentionally not used.
+Media files are checked during the first backend run and every later run. A missing file or a file whose SHA-256 is wrong is downloaded again. A valid file is not downloaded again. If the device is offline and no valid audio file exists, the visual alert still works.
+
+## Test mode
+
+Test mode ignores the device's real BitLocker and Secure Boot state. Run the installed helper elevated, or deploy it temporarily from Intune as SYSTEM.
+
+```powershell
+# Simulate the warning-period alert; repeat after one minute.
+& 'C:\ProgramData\SecurityFeatureMonitor\Set-SecurityFeatureMonitorTestMode.ps1' -Scenario Warning -AlertIntervalMinutes 1
+
+# Simulate the critical alert, including volume and both audio files.
+& 'C:\ProgramData\SecurityFeatureMonitor\Set-SecurityFeatureMonitorTestMode.ps1' -Scenario Critical -AlertIntervalMinutes 1
+
+# Return to real production checks.
+& 'C:\ProgramData\SecurityFeatureMonitor\Set-SecurityFeatureMonitorTestMode.ps1' -Disable
+```
+
+Available scenarios are `Healthy`, `Grace`, `Warning`, and `Critical`. Every test state includes `IsTestMode: true` in `State.json`. Disabling test mode triggers the tasks again and restores checks against the real device state.
+
+For a one-time UI-only test from the logged-on user's session:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'C:\ProgramData\SecurityFeatureMonitor\SecurityFeatureMonitor-UI.ps1' -ForceDisplay -ForceAudio
+```
+
+Both audio files are opened and prepared before the dialog is displayed. Playback is invisible, starts with the dialog, plays `bip.wav` twice followed by `alarm.mp3` three times, and releases all media resources when the sequence finishes—even if the dialog is still open. If the dialog is closed first, the hidden playback process remains only until the sequence finishes and then exits.
