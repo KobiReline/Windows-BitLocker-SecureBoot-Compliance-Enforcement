@@ -19,6 +19,7 @@ function Get-TargetPath {
     param([Parameter(Mandatory)]$File)
     if ([string]$File.Target -eq 'Install') { return Join-Path $InstallDirectory ([string]$File.Destination) }
     if ([string]$File.Target -eq 'Media') { return Join-Path (Join-Path $InstallDirectory 'media') ([string]$File.Destination) }
+    if ([string]$File.Target -eq 'Staging') { return Join-Path (Join-Path $InstallDirectory 'Staging') ([string]$File.Destination) }
     return $null
 }
 
@@ -72,6 +73,7 @@ catch {
 
 $requiredFallback = @(
     (Join-Path $InstallDirectory 'SecurityFeatureMonitor-Backend.cached.ps1'),
+    (Join-Path $InstallDirectory 'Staging\Install-SecurityFeatureMonitor.ps1'),
     (Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI.ps1'),
     (Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI-Launcher.vbs'),
     (Join-Path $InstallDirectory 'Set-SecurityFeatureMonitorTestMode.ps1'),
