@@ -19,7 +19,7 @@ function Get-MonitorState {
     try {
         $state = Get-Content -LiteralPath $statePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
         if ([int]$state.SchemaVersion -ne 1) { return $null }
-        if ([string]$state.Zone -notin @('Healthy', 'Excluded', 'Grace', 'Warning', 'Critical')) { return $null }
+        if ([string]$state.Zone -notin @('Healthy', 'Excluded', 'Warning', 'Critical', 'EncryptionInProgress')) { return $null }
         return $state
     }
     catch {
@@ -31,12 +31,12 @@ function Get-MonitorState {
 function Test-AlertDue {
     param([Parameter(Mandatory)]$State)
     if ($ForceDisplay) { return $true }
+    if ([bool]$State.SuppressAlerts) { return $false }
     if ([bool]$State.IsCompliant) { return $false }
     if (-not [string]::IsNullOrWhiteSpace([string]$State.RecoveryAlertId)) {
         $lastRecoveryAlert = Get-Content -LiteralPath $lastRecoveryAlertPath -Raw -ErrorAction SilentlyContinue
         if ([string]$lastRecoveryAlert -ne [string]$State.RecoveryAlertId) { return $true }
     }
-    if ([string]$State.Zone -eq 'Grace') { return $false }
     if ([bool]$State.IsTestMode -and -not [string]::IsNullOrWhiteSpace([string]$State.TestActivationId)) {
         $lastActivation = Get-Content -LiteralPath $lastTestActivationPath -Raw -ErrorAction SilentlyContinue
         if ([string]$lastActivation -ne [string]$State.TestActivationId) { return $true }
@@ -226,7 +226,7 @@ function Show-ComplianceDialog {
     $complianceHandler = {
         $latestState = Get-MonitorState
         if ($null -eq $latestState) { return }
-        if (-not [bool]$latestState.IsCompliant) { return }
+        if (-not [bool]$latestState.IsCompliant -and -not [bool]$latestState.SuppressAlerts) { return }
         Close-AudioSequence -Sequence $AudioSequence
         $form.Close()
     }.GetNewClosure()

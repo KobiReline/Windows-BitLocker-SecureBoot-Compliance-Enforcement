@@ -51,9 +51,9 @@ function Register-UserInterfaceTask {
     $launcherPath = Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI-Launcher.vbs'
     $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "//B //NoLogo `"$launcherPath`""
     $principal = New-ScheduledTaskPrincipal -GroupId 'BUILTIN\Users' -RunLevel Limited
-    $triggers = @(New-ScheduledTaskTrigger -AtLogOn)
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 1)
-    Register-ScheduledTask -TaskName 'SecurityFeatureMonitor-UI' -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Force | Out-Null
+    $task = New-ScheduledTask -Action $action -Principal $principal -Settings $settings
+    Register-ScheduledTask -TaskName 'SecurityFeatureMonitor-UI' -InputObject $task -Force | Out-Null
 }
 
 function Register-BackendTask {

@@ -6,19 +6,19 @@
       "Source": "Install-SecurityFeatureMonitor.ps1",
       "Target": "Staging",
       "Destination": "Install-SecurityFeatureMonitor.ps1",
-      "Sha256": "AEEA7471FD9609C5BC584E9B1403F9EB30A4DDFDCEF3BA893D94B1F17472CEC0"
+      "Sha256": "467BECA7F96C1B1DA6129C2D4FA9CAC1EF127427010A4CCCCCCD4BF444610A85"
     },
     {
       "Source": "SecurityFeatureMonitor-Backend.ps1",
       "Target": "Install",
       "Destination": "SecurityFeatureMonitor-Backend.cached.ps1",
-      "Sha256": "D287C5912287CC1BAB990AA85DE221B231106FF43B09E3368283722A2383198C"
+      "Sha256": "0D4683D955E30B123AB5073981CEE4474A7B30887447EC63E014AED2F1AB3E65"
     },
     {
       "Source": "SecurityFeatureMonitor-UI.ps1",
       "Target": "Install",
       "Destination": "SecurityFeatureMonitor-UI.ps1",
-      "Sha256": "44762A8949EAB90E272FF142F6C39DB6F2C18F10BA006B9A667D963CF2598E64"
+      "Sha256": "2E035895A0D7B032EE928C23075744CC5A932D7E5AAA5BDED3D577D85E3DA10B"
     },
     {
       "Source": "SecurityFeatureMonitor-UI-Launcher.vbs",
@@ -30,7 +30,7 @@
       "Source": "Set-SecurityFeatureMonitorTestMode.ps1",
       "Target": "Install",
       "Destination": "Set-SecurityFeatureMonitorTestMode.ps1",
-      "Sha256": "AC2975E98742EE23B5FAB24B90972D182D2BC825980B5E886702A77C759D6784"
+      "Sha256": "2AE9352A1F96F2A706A2D1AD831A25FBD353629F714A766969E5A9B1E8EFCE2A"
     },
     {
       "Source": "media/bip.wav",

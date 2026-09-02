@@ -5,7 +5,7 @@ param(
     [string]$RegistryPath = 'HKLM:\SOFTWARE\CustomSecurityCheck',
     [string]$BackendTaskName = 'Intune-SecurityFeatureMonitor',
     [string]$RepositoryRawBaseUrl = 'https://raw.githubusercontent.com/KobiReline/Windows-BitLocker-SecureBoot-Compliance-Enforcement/main',
-    [ValidateSet('None', 'Healthy', 'Grace', 'Warning', 'Critical')]
+    [ValidateSet('None', 'Healthy', 'Warning', 'Critical')]
     [string]$TestScenario = 'None',
     [ValidateRange(1, 1440)][int]$TestAlertIntervalMinutes = 1,
     [switch]$SuppressAudioOnce,
@@ -16,6 +16,7 @@ $ErrorActionPreference = 'Stop'
 $script:ExclusionKeys = @('ManualManagement', 'VIP_Device', 'AdminException', 'LabMachine')
 $script:StatePath = Join-Path $RootPath 'State.json'
 $script:FailureTimePath = Join-Path $RootPath 'FirstFailureTime.txt'
+$script:EncryptionPausePath = Join-Path $RootPath 'EncryptionPause.json'
 $script:ManifestPath = Join-Path $InstallPath 'manifest.json'
 $script:BeepPath = Join-Path $InstallPath 'media\bip.wav'
 $script:AlarmPath = Join-Path $InstallPath 'media\alarm.mp3'
@@ -62,7 +63,7 @@ function Import-TestConfiguration {
     $enabled = Get-RegistryValueOrNull -Path $RegistryPath -Name TestModeEnabled
     if ([string]$enabled -ne '1') { return }
     $configuredScenario = [string](Get-RegistryValueOrNull -Path $RegistryPath -Name TestScenario)
-    if ($configuredScenario -notin @('Healthy', 'Grace', 'Warning', 'Critical')) { return }
+    if ($configuredScenario -notin @('Healthy', 'Warning', 'Critical')) { return }
     $script:EffectiveTestScenario = $configuredScenario
     $script:EffectiveTestActivationId = [string](Get-RegistryValueOrNull -Path $RegistryPath -Name TestActivationId)
     $configuredInterval = Get-RegistryValueOrNull -Path $RegistryPath -Name TestAlertIntervalMinutes
@@ -76,13 +77,14 @@ function Get-SecureBootState {
     catch { return $false }
 }
 
-function Get-BitLockerState {
+function Get-BitLockerStatus {
     try {
         $volume = Get-BitLockerVolume -MountPoint 'C:' -ErrorAction Stop
-        if ($volume.ProtectionStatus -eq 'On') { return $true }
-        return $volume.VolumeStatus -eq 'EncryptionInProgress'
+        if ([string]$volume.VolumeStatus -eq 'EncryptionInProgress') { return 'EncryptionInProgress' }
+        if ([string]$volume.ProtectionStatus -eq 'On') { return 'Protected' }
+        return 'NotProtected'
     }
-    catch { return $false }
+    catch { return 'NotProtected' }
 }
 
 function Get-FailureTimestamp {
@@ -111,20 +113,60 @@ function Remove-FailureTracking {
 
 function Get-ComplianceZone {
     param([Parameter(Mandatory)][double]$HoursElapsed)
-    if ($HoursElapsed -ge 48) { return 'Critical' }
-    if ($HoursElapsed -ge 24) { return 'Warning' }
-    return 'Grace'
+    if ($HoursElapsed -ge 24) { return 'Critical' }
+    return 'Warning'
 }
 
 function Get-NextIntervalMinutes {
     param([Parameter(Mandatory)][string]$Zone)
-    if ($Zone -in @('Warning', 'Critical')) { return 5 }
+    if ($Zone -in @('Critical', 'EncryptionInProgress')) { return 5 }
     if ($Zone -eq 'Healthy' -or $Zone -eq 'Excluded') { return 1440 }
     return 60
 }
 
 function Start-UserInterfaceTask {
     Start-ScheduledTask -TaskName 'SecurityFeatureMonitor-UI' -ErrorAction SilentlyContinue
+}
+
+function Get-EncryptionPause {
+    if (-not (Test-Path -LiteralPath $script:EncryptionPausePath -PathType Leaf)) { return $null }
+    try { return Get-Content -LiteralPath $script:EncryptionPausePath -Raw | ConvertFrom-Json -ErrorAction Stop }
+    catch { Remove-Item -LiteralPath $script:EncryptionPausePath -Force -ErrorAction SilentlyContinue; return $null }
+}
+
+function Start-EncryptionPause {
+    $existingPause = Get-EncryptionPause
+    if ($null -ne $existingPause) { return $existingPause }
+
+    $resumeZone = 'Warning'
+    if (Test-Path -LiteralPath $script:StatePath -PathType Leaf) {
+        try {
+            $existingState = Get-Content -LiteralPath $script:StatePath -Raw | ConvertFrom-Json -ErrorAction Stop
+            if ([string]$existingState.Zone -in @('Warning', 'Critical')) { $resumeZone = [string]$existingState.Zone }
+        }
+        catch { }
+    }
+
+    $pause = [ordered]@{
+        StartedUtc = (Get-Date).ToUniversalTime().ToString('o')
+        ResumeZone = $resumeZone
+    }
+    $pause | ConvertTo-Json | Set-Content -LiteralPath $script:EncryptionPausePath -Encoding UTF8 -Force
+    return [PSCustomObject]$pause
+}
+
+function Resume-FailureClockAfterEncryption {
+    $pause = Get-EncryptionPause
+    if ($null -eq $pause) { return }
+
+    try {
+        $pauseStarted = [datetime]::Parse([string]$pause.StartedUtc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+        $failureStarted = [datetime]::Parse((Get-Content -LiteralPath $script:FailureTimePath -Raw), [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+        $adjustedFailureTime = $failureStarted.Add((Get-Date).ToUniversalTime() - $pauseStarted.ToUniversalTime())
+        $adjustedFailureTime.ToString('o') | Set-Content -LiteralPath $script:FailureTimePath -Encoding ASCII -Force
+    }
+    catch { }
+    finally { Remove-Item -LiteralPath $script:EncryptionPausePath -Force -ErrorAction SilentlyContinue }
 }
 
 function Save-StateAtomically {
@@ -142,7 +184,9 @@ function Save-ComplianceState {
         [Parameter(Mandatory)][bool]$BitLocker,
         [AllowNull()][Nullable[datetime]]$FirstFailureTime,
         [bool]$IsTestMode = $false,
-        [bool]$IsRecoveryAlert = $false
+        [bool]$IsRecoveryAlert = $false,
+        [bool]$SuppressAlerts = $false,
+        [AllowNull()][string]$ResumeZone = $null
     )
 
     $interval = if ($IsTestMode) { $script:EffectiveTestAlertIntervalMinutes } else { Get-NextIntervalMinutes -Zone $Zone }
@@ -154,13 +198,15 @@ function Save-ComplianceState {
         GeneratedUtc = (Get-Date).ToUniversalTime().ToString('o')
         Zone = $Zone
         IsCompliant = ($Zone -in @('Healthy', 'Excluded'))
+        SuppressAlerts = $SuppressAlerts
+        ResumeZone = $ResumeZone
         SecureBoot = $SecureBoot
         BitLocker = $BitLocker
         FirstFailureUtc = if ($null -eq $FirstFailureTime) { $null } else { $FirstFailureTime.Value.ToUniversalTime().ToString('o') }
         AlertIntervalMinutes = $interval
-        MinimizeWindows = ($Zone -in @('Warning', 'Critical'))
+        MinimizeWindows = (($Zone -in @('Warning', 'Critical')) -and -not $SuppressAlerts)
         MaximizeVolume = ($Zone -eq 'Critical')
-        PlayAudio = (($Zone -eq 'Critical') -and -not $IsRecoveryAlert)
+        PlayAudio = (($Zone -eq 'Critical') -and -not $IsRecoveryAlert -and -not $SuppressAlerts)
         BeepPath = $script:BeepPath
         AlarmPath = $script:AlarmPath
         BeepRepeatCount = 2
@@ -174,9 +220,9 @@ function Save-ComplianceState {
     $registryStatus = switch ($Zone) {
         'Excluded' { 'Compliant_Excluded' }
         'Healthy' { 'Compliant' }
-        'Grace' { 'Missing_Grace' }
-        'Warning' { 'Missing_24h' }
-        'Critical' { 'Missing_48h' }
+        'Warning' { 'Missing_Under24h' }
+        'Critical' { 'Missing_24hOrMore' }
+        'EncryptionInProgress' { 'EncryptionInProgress_AlertsSuspended' }
     }
     Set-ItemProperty -Path $RegistryPath -Name ComplianceStatus -Value $registryStatus -Force
 }
@@ -230,11 +276,12 @@ function Set-BackendScheduledTask {
     $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments
     $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
+    $logonTrigger = New-ScheduledTaskTrigger -AtLogOn
     $triggers = if ($Zone -in @('Healthy', 'Excluded')) {
-        @(New-ScheduledTaskTrigger -Daily -At '12:00')
+        @((New-ScheduledTaskTrigger -Daily -At '12:00'), $logonTrigger)
     } else {
         $minutes = Get-NextIntervalMinutes -Zone $Zone
-        @(New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $minutes))
+        @((New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $minutes)), $logonTrigger)
     }
     Register-ScheduledTask -TaskName $BackendTaskName -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Force | Out-Null
 }
@@ -251,7 +298,7 @@ function Invoke-BackendPipeline {
     if ($script:EffectiveTestScenario -ne 'None') {
         $testSecureBoot = $script:EffectiveTestScenario -eq 'Healthy'
         $testBitLocker = $script:EffectiveTestScenario -eq 'Healthy'
-        $testFailureTime = if ($script:EffectiveTestScenario -in @('Grace', 'Warning', 'Critical')) { Get-Date } else { $null }
+        $testFailureTime = if ($script:EffectiveTestScenario -in @('Warning', 'Critical')) { Get-Date } else { $null }
         Save-ComplianceState -Zone $script:EffectiveTestScenario -SecureBoot $testSecureBoot -BitLocker $testBitLocker -FirstFailureTime $testFailureTime -IsTestMode $true
         if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone $script:EffectiveTestScenario }
         Start-UserInterfaceTask
@@ -267,7 +314,18 @@ function Invoke-BackendPipeline {
     }
 
     $secureBoot = Get-SecureBootState
-    $bitLocker = Get-BitLockerState
+    $bitLockerStatus = Get-BitLockerStatus
+    if ($bitLockerStatus -eq 'EncryptionInProgress') {
+        $pause = Start-EncryptionPause
+        $firstFailure = if (Test-Path -LiteralPath $script:FailureTimePath -PathType Leaf) { Get-FailureTimestamp } else { $null }
+        Save-ComplianceState -Zone EncryptionInProgress -SecureBoot $secureBoot -BitLocker $false -FirstFailureTime $firstFailure -SuppressAlerts $true -ResumeZone ([string]$pause.ResumeZone)
+        if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone EncryptionInProgress }
+        Start-UserInterfaceTask
+        return 0
+    }
+
+    Resume-FailureClockAfterEncryption
+    $bitLocker = $bitLockerStatus -eq 'Protected'
     if ($secureBoot -and $bitLocker) {
         Remove-FailureTracking
         Save-ComplianceState -Zone Healthy -SecureBoot $secureBoot -BitLocker $bitLocker -FirstFailureTime $null

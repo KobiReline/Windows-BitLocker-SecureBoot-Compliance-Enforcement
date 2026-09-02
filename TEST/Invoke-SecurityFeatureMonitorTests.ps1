@@ -126,7 +126,7 @@ $statePath = Join-Path $InstallDirectory 'State\State.json'
 try {
     $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json -ErrorAction Stop
     Test-Condition ([int]$state.SchemaVersion -eq 1) 'State schema' ([string]$state.SchemaVersion) '1'
-    Test-Condition ([string]$state.Zone -in @('Healthy','Excluded','Grace','Warning','Critical')) 'State zone' ([string]$state.Zone) 'Healthy, Excluded, Grace, Warning, or Critical'
+    Test-Condition ([string]$state.Zone -in @('Healthy','Excluded','Warning','Critical','EncryptionInProgress')) 'State zone' ([string]$state.Zone) 'Healthy, Excluded, Warning, Critical, or EncryptionInProgress'
     $colour = if ([bool]$state.IsCompliant) { 'Green' } else { 'Yellow' }
     Write-Host "[INFO] Backend state: Zone=$($state.Zone); SecureBoot=$($state.SecureBoot); BitLocker=$($state.BitLocker); GeneratedUtc=$($state.GeneratedUtc)" -ForegroundColor $colour
 }

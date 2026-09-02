@@ -1,7 +1,7 @@
 [CmdletBinding(DefaultParameterSetName = 'Enable')]
 param(
     [Parameter(Mandatory, ParameterSetName = 'Enable')]
-    [ValidateSet('Healthy', 'Grace', 'Warning', 'Critical')]
+    [ValidateSet('Healthy', 'Warning', 'Critical')]
     [string]$Scenario,
     [Parameter(ParameterSetName = 'Enable')]
     [ValidateRange(1, 1440)]

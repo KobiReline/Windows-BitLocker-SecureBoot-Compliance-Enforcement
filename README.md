@@ -28,7 +28,7 @@ The remediation script downloads `manifest.json`, validates every downloaded fil
 
 After self-healing, a noncompliant device displays one immediate UI alert without audio. A later regular critical-state backend run restores normal audio behavior.
 
-The backend task runs as SYSTEM at startup and hourly. The UI task runs for logged-on users at logon and every five minutes. Every machine-wide component is kept below one root:
+The backend task runs as SYSTEM and changes its own schedule after every check. Healthy or excluded devices run daily; non-compliant devices under 24 hours run hourly; non-compliant devices at 24 hours or later run every five minutes. Every backend schedule also includes an AtLogOn trigger running as SYSTEM. The backend starts the on-demand UI task only after it has written the current state. Every machine-wide component is kept below one root:
 
 - `C:\ProgramData\SecurityFeatureMonitor` - installed scripts, local manifest and version label
 - `C:\ProgramData\SecurityFeatureMonitor\State` - generated compliance state and failure timestamp
@@ -39,11 +39,13 @@ The backend task runs as SYSTEM at startup and hourly. The UI task runs for logg
 
 Media files are checked during the first backend run and every later run. A missing file or a file whose SHA-256 is wrong is downloaded again. A valid file is not downloaded again. If the device is offline and no valid audio file exists, the visual alert still works.
 
+BitLocker `EncryptionInProgress` suspends visual and audio alerts even if Secure Boot is still not compliant. The backend checks encryption progress every five minutes, preserves the pre-encryption warning level and pauses its elapsed-time clock. When encryption finishes, normal evaluation resumes from the saved warning level. An already-open dialog closes when the backend writes a compliant or alert-suspended state.
+
 `manifest.json` is the update contract. After changing an installed script or media file, update its SHA-256 value in the manifest. The next daily Intune detection reports `HashMismatch`, and remediation installs the changed content. `Version` is a human-readable release label for inventory and troubleshooting; it is recommended for a planned release but is not required to deploy a small fix. Hashes, not the version label, decide whether repair is required.
 
 The backend reads the media hashes from its installed copy of `manifest.json`; media hashes are not duplicated in backend source code.
 
-`Detect-SecurityFeatureMonitor.ps1` and `Deploy-FromIntune.ps1` are the small Intune entry points. They are stored directly in the Intune Remediations package rather than installed on endpoints. A change to either file must therefore be uploaded to the Intune package. Changes to installer/backend/UI/test-mode/media files are distributed through the manifest and GitHub.
+`Detect-SecurityFeatureMonitor.ps1` and `Deploy-FromIntune.ps1` are stable Intune bootstrap entry points. They are stored directly in the Intune Remediations package rather than installed on endpoints. Normal installer/backend/UI/launcher/test-mode/media changes are distributed through the manifest and GitHub and do not require editing Intune. Re-upload an Intune entry point only when its own detection or deployment protocol changes.
 
 ## Post-deployment tests
 
@@ -70,7 +72,7 @@ Test mode ignores the device's real BitLocker and Secure Boot state. Run the ins
 & 'C:\ProgramData\SecurityFeatureMonitor\Set-SecurityFeatureMonitorTestMode.ps1' -Disable
 ```
 
-Available scenarios are `Healthy`, `Grace`, `Warning`, and `Critical`. Every test state includes `IsTestMode: true` in `State.json`. Disabling test mode triggers the tasks again and restores checks against the real device state.
+Available scenarios are `Healthy`, `Warning`, and `Critical`. Every test state includes `IsTestMode: true` in `State.json`. Disabling test mode triggers the tasks again and restores checks against the real device state.
 
 For a one-time UI-only test from the logged-on user's session:
 
