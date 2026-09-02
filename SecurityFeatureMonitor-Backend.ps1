@@ -118,9 +118,13 @@ function Get-ComplianceZone {
 
 function Get-NextIntervalMinutes {
     param([Parameter(Mandatory)][string]$Zone)
-    if ($Zone -eq 'Critical') { return 5 }
+    if ($Zone -in @('Warning', 'Critical')) { return 5 }
     if ($Zone -eq 'Healthy' -or $Zone -eq 'Excluded') { return 1440 }
     return 60
+}
+
+function Start-UserInterfaceTask {
+    Start-ScheduledTask -TaskName 'SecurityFeatureMonitor-UI' -ErrorAction SilentlyContinue
 }
 
 function Save-StateAtomically {
@@ -221,13 +225,13 @@ function Set-BackendScheduledTask {
     param([Parameter(Mandatory)][string]$Zone)
 
     $backendPath = $PSCommandPath
-    $arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$backendPath`" -RepositoryRawBaseUrl `"$RepositoryRawBaseUrl`""
+    $arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$backendPath`" -RepositoryRawBaseUrl `"$RepositoryRawBaseUrl`" -InstallScheduledTask"
     if ($TestScenario -ne 'None') { $arguments += " -TestScenario $TestScenario -TestAlertIntervalMinutes $TestAlertIntervalMinutes" }
     $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments
     $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
     $triggers = if ($Zone -in @('Healthy', 'Excluded')) {
-        @((New-ScheduledTaskTrigger -Daily -At '12:00'), (New-ScheduledTaskTrigger -AtLogOn))
+        @(New-ScheduledTaskTrigger -Daily -At '12:00')
     } else {
         $minutes = Get-NextIntervalMinutes -Zone $Zone
         @(New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $minutes))
@@ -250,6 +254,7 @@ function Invoke-BackendPipeline {
         $testFailureTime = if ($script:EffectiveTestScenario -in @('Grace', 'Warning', 'Critical')) { Get-Date } else { $null }
         Save-ComplianceState -Zone $script:EffectiveTestScenario -SecureBoot $testSecureBoot -BitLocker $testBitLocker -FirstFailureTime $testFailureTime -IsTestMode $true
         if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone $script:EffectiveTestScenario }
+        Start-UserInterfaceTask
         return 0
     }
 
@@ -257,6 +262,7 @@ function Invoke-BackendPipeline {
         Remove-FailureTracking
         Save-ComplianceState -Zone Excluded -SecureBoot $true -BitLocker $true -FirstFailureTime $null
         if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone Excluded }
+        Start-UserInterfaceTask
         return 0
     }
 
@@ -266,6 +272,7 @@ function Invoke-BackendPipeline {
         Remove-FailureTracking
         Save-ComplianceState -Zone Healthy -SecureBoot $secureBoot -BitLocker $bitLocker -FirstFailureTime $null
         if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone Healthy }
+        Start-UserInterfaceTask
         return 0
     }
 
@@ -273,6 +280,7 @@ function Invoke-BackendPipeline {
     $zone = Get-ComplianceZone -HoursElapsed ((Get-Date) - $firstFailure).TotalHours
     Save-ComplianceState -Zone $zone -SecureBoot $secureBoot -BitLocker $bitLocker -FirstFailureTime $firstFailure -IsRecoveryAlert ([bool]$SuppressAudioOnce)
     if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone $zone }
+    Start-UserInterfaceTask
     return 0
 }
 

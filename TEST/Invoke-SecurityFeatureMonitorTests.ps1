@@ -97,7 +97,7 @@ if ($null -ne $manifest) {
 
 foreach ($definition in @(
     @{ Name = $BackendTaskName; Identity = '(?i)^(SYSTEM|NT AUTHORITY\\SYSTEM)$'; Script = 'SecurityFeatureMonitor-Backend\.cached\.ps1'; Label = 'Backend task' },
-    @{ Name = $UiTaskName; Identity = '(?i)^(BUILTIN\\Users|Users|S-1-5-32-545)$'; Script = 'SecurityFeatureMonitor-UI\.ps1'; Label = 'UI task' }
+    @{ Name = $UiTaskName; Identity = '(?i)^(BUILTIN\\Users|Users|S-1-5-32-545)$'; Script = 'SecurityFeatureMonitor-UI-Launcher\.vbs'; Label = 'UI task' }
 )) {
     $task = Get-ScheduledTask -TaskName $definition.Name -ErrorAction SilentlyContinue
     if ($null -eq $task) { Write-TestResult FAIL $definition.Label 'Missing' "Scheduled task '$($definition.Name)' exists"; continue }

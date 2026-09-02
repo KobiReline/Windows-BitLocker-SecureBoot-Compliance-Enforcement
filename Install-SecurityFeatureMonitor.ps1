@@ -27,6 +27,7 @@ function Initialize-Directories {
 function Install-Files {
     $mapping = @(
         @{ Source = 'SecurityFeatureMonitor-UI.ps1'; Destination = (Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI.ps1') },
+        @{ Source = 'SecurityFeatureMonitor-UI-Launcher.vbs'; Destination = (Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI-Launcher.vbs') },
         @{ Source = 'Set-SecurityFeatureMonitorTestMode.ps1'; Destination = (Join-Path $InstallDirectory 'Set-SecurityFeatureMonitorTestMode.ps1') },
         @{ Source = 'SecurityFeatureMonitor-Backend.ps1'; Destination = (Join-Path $InstallDirectory 'SecurityFeatureMonitor-Backend.cached.ps1') },
         @{ Source = 'manifest.json'; Destination = (Join-Path $InstallDirectory 'manifest.json') },
@@ -47,13 +48,10 @@ function Set-SecureAcls {
 }
 
 function Register-UserInterfaceTask {
-    $uiPath = Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI.ps1'
-    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$uiPath`""
+    $launcherPath = Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI-Launcher.vbs'
+    $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "//B //NoLogo `"$launcherPath`""
     $principal = New-ScheduledTaskPrincipal -GroupId 'BUILTIN\Users' -RunLevel Limited
-    $triggers = @(
-        (New-ScheduledTaskTrigger -AtLogOn),
-        (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5))
-    )
+    $triggers = @(New-ScheduledTaskTrigger -AtLogOn)
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 1)
     Register-ScheduledTask -TaskName 'SecurityFeatureMonitor-UI' -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Force | Out-Null
 }
@@ -72,7 +70,7 @@ function Register-BackendTask {
 
 function Invoke-ImmediateComplianceCheck {
     $backendPath = Join-Path $InstallDirectory 'SecurityFeatureMonitor-Backend.cached.ps1'
-    $arguments = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $backendPath)
+    $arguments = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $backendPath, '-InstallScheduledTask')
     if ($RecoveryMode) { $arguments += '-SuppressAudioOnce' }
     $process = Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
     if ($process.ExitCode -notin @(0, 1)) { throw "Backend immediate check failed with exit code $($process.ExitCode)." }
