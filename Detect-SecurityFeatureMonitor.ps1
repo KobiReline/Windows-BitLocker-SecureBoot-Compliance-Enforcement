@@ -32,7 +32,7 @@ function Test-TaskDefinitions {
     $ui = Get-ScheduledTask -TaskName 'SecurityFeatureMonitor-UI' -ErrorAction SilentlyContinue
     if ($null -eq $ui) { Add-Issue -Issues $Issues -Value 'MissingTask:UI' }
     $uiIdentity = if ($null -eq $ui) { '' } elseif (-not [string]::IsNullOrWhiteSpace([string]$ui.Principal.GroupId)) { [string]$ui.Principal.GroupId } else { [string]$ui.Principal.UserId }
-    if ($null -ne $ui -and $uiIdentity -notmatch '(?i)(BUILTIN\\Users|S-1-5-32-545)') { Add-Issue -Issues $Issues -Value 'InvalidTaskPrincipal:UI' }
+    if ($null -ne $ui -and $uiIdentity -notmatch '(?i)^(BUILTIN\\Users|Users|S-1-5-32-545)$') { Add-Issue -Issues $Issues -Value 'InvalidTaskPrincipal:UI' }
     if ($null -ne $ui -and [string]$ui.Actions.Arguments -notmatch 'SecurityFeatureMonitor-UI\.ps1') { Add-Issue -Issues $Issues -Value 'InvalidTaskAction:UI' }
 }
 

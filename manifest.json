@@ -12,7 +12,7 @@
       "Source": "SecurityFeatureMonitor-Backend.ps1",
       "Target": "Install",
       "Destination": "SecurityFeatureMonitor-Backend.cached.ps1",
-      "Sha256": "EF9B76964999247F7C37415A06B9768A48C75A62AF19DEA9F54ED88903E00626"
+      "Sha256": "E700BD7B32D88846E8A72CAF57BE0A90BFD837EEF374D086F0C48993974B3341"
     },
     {
       "Source": "SecurityFeatureMonitor-UI.ps1",

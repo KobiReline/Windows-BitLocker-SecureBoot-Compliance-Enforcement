@@ -36,9 +36,22 @@ function Initialize-BackendStorage {
     if (-not (Test-Path -LiteralPath $RegistryPath)) { New-Item -Path $RegistryPath -Force | Out-Null }
 }
 
+function Get-RegistryValueOrNull {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    $item = Get-ItemProperty -Path $Path -ErrorAction SilentlyContinue
+    if ($null -eq $item) { return $null }
+    $property = $item.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $null }
+    return $property.Value
+}
+
 function Test-DeviceExcluded {
     foreach ($name in $script:ExclusionKeys) {
-        $value = Get-ItemPropertyValue -Path $RegistryPath -Name $name -ErrorAction SilentlyContinue
+        $value = Get-RegistryValueOrNull -Path $RegistryPath -Name $name
         if ([string]$value -ieq 'True') { return $true }
     }
     return $false
@@ -46,13 +59,13 @@ function Test-DeviceExcluded {
 
 function Import-TestConfiguration {
     if ($TestScenario -ne 'None') { return }
-    $enabled = Get-ItemPropertyValue -Path $RegistryPath -Name TestModeEnabled -ErrorAction SilentlyContinue
+    $enabled = Get-RegistryValueOrNull -Path $RegistryPath -Name TestModeEnabled
     if ([string]$enabled -ne '1') { return }
-    $configuredScenario = [string](Get-ItemPropertyValue -Path $RegistryPath -Name TestScenario -ErrorAction SilentlyContinue)
+    $configuredScenario = [string](Get-RegistryValueOrNull -Path $RegistryPath -Name TestScenario)
     if ($configuredScenario -notin @('Healthy', 'Grace', 'Warning', 'Critical')) { return }
     $script:EffectiveTestScenario = $configuredScenario
-    $script:EffectiveTestActivationId = [string](Get-ItemPropertyValue -Path $RegistryPath -Name TestActivationId -ErrorAction SilentlyContinue)
-    $configuredInterval = Get-ItemPropertyValue -Path $RegistryPath -Name TestAlertIntervalMinutes -ErrorAction SilentlyContinue
+    $script:EffectiveTestActivationId = [string](Get-RegistryValueOrNull -Path $RegistryPath -Name TestActivationId)
+    $configuredInterval = Get-RegistryValueOrNull -Path $RegistryPath -Name TestAlertIntervalMinutes
     if ($null -eq $configuredInterval) { return }
     if ([int]$configuredInterval -lt 1 -or [int]$configuredInterval -gt 1440) { return }
     $script:EffectiveTestAlertIntervalMinutes = [int]$configuredInterval
@@ -260,7 +273,7 @@ function Invoke-BackendPipeline {
     $zone = Get-ComplianceZone -HoursElapsed ((Get-Date) - $firstFailure).TotalHours
     Save-ComplianceState -Zone $zone -SecureBoot $secureBoot -BitLocker $bitLocker -FirstFailureTime $firstFailure -IsRecoveryAlert ([bool]$SuppressAudioOnce)
     if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone $zone }
-    return 1
+    return 0
 }
 
 exit (Invoke-BackendPipeline)
