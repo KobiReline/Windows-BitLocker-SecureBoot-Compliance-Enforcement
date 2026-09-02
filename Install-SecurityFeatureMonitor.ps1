@@ -28,6 +28,7 @@ function Install-Files {
     $mapping = @(
         @{ Source = 'SecurityFeatureMonitor-UI.ps1'; Destination = (Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI.ps1') },
         @{ Source = 'SecurityFeatureMonitor-UI-Launcher.vbs'; Destination = (Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI-Launcher.vbs') },
+        @{ Source = 'Deploy-FromIntune.ps1'; Destination = (Join-Path $InstallDirectory 'Update-SecurityFeatureMonitor.ps1') },
         @{ Source = 'Set-SecurityFeatureMonitorTestMode.ps1'; Destination = (Join-Path $InstallDirectory 'Set-SecurityFeatureMonitorTestMode.ps1') },
         @{ Source = 'SecurityFeatureMonitor-Backend.ps1'; Destination = (Join-Path $InstallDirectory 'SecurityFeatureMonitor-Backend.cached.ps1') },
         @{ Source = 'manifest.json'; Destination = (Join-Path $InstallDirectory 'manifest.json') },
@@ -37,7 +38,12 @@ function Install-Files {
     foreach ($item in $mapping) {
         $sourcePath = Join-Path $SourceDirectory $item.Source
         if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) { throw "Required source file is missing: $($item.Source)" }
-        Copy-Item -LiteralPath $sourcePath -Destination $item.Destination -Force
+        $temporaryDestination = "$($item.Destination).installing"
+        try {
+            Copy-Item -LiteralPath $sourcePath -Destination $temporaryDestination -Force
+            Move-Item -LiteralPath $temporaryDestination -Destination $item.Destination -Force
+        }
+        finally { Remove-Item -LiteralPath $temporaryDestination -Force -ErrorAction SilentlyContinue }
     }
     $Version | Set-Content -LiteralPath (Join-Path $InstallDirectory 'Version.txt') -Encoding ASCII -Force
 }
@@ -51,20 +57,20 @@ function Register-UserInterfaceTask {
     $launcherPath = Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI-Launcher.vbs'
     $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "//B //NoLogo `"$launcherPath`""
     $principal = New-ScheduledTaskPrincipal -GroupId 'BUILTIN\Users' -RunLevel Limited
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 1)
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances StopExisting -ExecutionTimeLimit (New-TimeSpan -Hours 1)
     $task = New-ScheduledTask -Action $action -Principal $principal -Settings $settings
     Register-ScheduledTask -TaskName 'SecurityFeatureMonitor-UI' -InputObject $task -Force | Out-Null
 }
 
 function Register-BackendTask {
     $backendPath = Join-Path $InstallDirectory 'SecurityFeatureMonitor-Backend.cached.ps1'
-    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$backendPath`""
+    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$backendPath`" -InstallScheduledTask"
     $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
     $triggers = @(
         (New-ScheduledTaskTrigger -AtStartup),
         (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Hours 1))
     )
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances StopExisting
     Register-ScheduledTask -TaskName 'Intune-SecurityFeatureMonitor' -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Force | Out-Null
 }
 
@@ -83,6 +89,5 @@ Set-SecureAcls
 Register-BackendTask
 Register-UserInterfaceTask
 Invoke-ImmediateComplianceCheck
-Start-ScheduledTask -TaskName 'SecurityFeatureMonitor-UI' -ErrorAction SilentlyContinue
 Write-Output "Security Feature Monitor version $Version installed successfully."
 exit 0

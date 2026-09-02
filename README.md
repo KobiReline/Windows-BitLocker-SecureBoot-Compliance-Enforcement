@@ -39,7 +39,7 @@ The backend task runs as SYSTEM and changes its own schedule after every check. 
 
 Media files are checked during the first backend run and every later run. A missing file or a file whose SHA-256 is wrong is downloaded again. A valid file is not downloaded again. If the device is offline and no valid audio file exists, the visual alert still works.
 
-BitLocker `EncryptionInProgress` suspends visual and audio alerts even if Secure Boot is still not compliant. The backend checks encryption progress every five minutes, preserves the pre-encryption warning level and pauses its elapsed-time clock. When encryption finishes, normal evaluation resumes from the saved warning level. An already-open dialog closes when the backend writes a compliant or alert-suspended state.
+BitLocker `EncryptionInProgress` suspends visual and audio alerts even if Secure Boot is still not compliant. The backend checks encryption progress hourly, preserves the pre-encryption warning level and pauses its elapsed-time clock. When encryption finishes, normal evaluation resumes from the saved warning level. The on-demand UI task uses StopExisting, so a backend run stops the prior UI instance before launching the UI against the newly written state.
 
 `manifest.json` is the update contract. After changing an installed script or media file, update its SHA-256 value in the manifest. The next daily Intune detection reports `HashMismatch`, and remediation installs the changed content. `Version` is a human-readable release label for inventory and troubleshooting; it is recommended for a planned release but is not required to deploy a small fix. Hashes, not the version label, decide whether repair is required.
 
@@ -81,3 +81,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'C:\ProgramData\Security
 ```
 
 Both audio files are opened and prepared before the dialog is displayed. Playback is invisible, starts with the dialog, plays `bip.wav` twice followed by `alarm.mp3` three times, and releases all media resources when the sequence finishes—even if the dialog is still open. If the dialog is closed first, the hidden playback process remains only until the sequence finishes and then exits.
+
+
+## Integrity and self-update
+
+Every backend run compares all installed payload hashes with the remote manifest and validates both scheduled tasks. A verified local updater repairs changed files or task definitions. Intune Detection remains the external daily recovery layer when the backend task itself is deleted or disabled. Detection and remediation also reject disabled tasks, altered principals/actions, unexpected UI triggers, and an instance policy other than `StopExisting`. Remediation reports success only after post-install hashes and task definitions pass verification.

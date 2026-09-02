@@ -102,9 +102,14 @@ foreach ($definition in @(
     $task = Get-ScheduledTask -TaskName $definition.Name -ErrorAction SilentlyContinue
     if ($null -eq $task) { Write-TestResult FAIL $definition.Label 'Missing' "Scheduled task '$($definition.Name)' exists"; continue }
     Write-TestResult PASS $definition.Label $task.TaskName "Scheduled task '$($definition.Name)' exists"
+    Test-Condition ([string]$task.State -ne 'Disabled') "$($definition.Label) enabled" ([string]$task.State) 'Not Disabled'
+    Test-Condition ([string]$task.Settings.MultipleInstances -eq 'StopExisting') "$($definition.Label) instance policy" ([string]$task.Settings.MultipleInstances) 'StopExisting'
     $taskIdentity = if ([string]::IsNullOrWhiteSpace([string]$task.Principal.GroupId)) { [string]$task.Principal.UserId } else { [string]$task.Principal.GroupId }
     Test-Condition ($taskIdentity -match $definition.Identity) "$($definition.Label) identity" $taskIdentity $definition.Identity
     Test-Condition ([string]$task.Actions.Arguments -match $definition.Script) "$($definition.Label) action" ([string]$task.Actions.Arguments) $definition.Script
+    if ($definition.Name -eq $UiTaskName) {
+        Test-Condition (@($task.Triggers).Count -eq 0) 'UI task trigger count' ([string]@($task.Triggers).Count) '0 (on-demand only)'
+    }
     $taskInfo = Get-ScheduledTaskInfo -TaskName $definition.Name -ErrorAction SilentlyContinue
     if ($null -ne $taskInfo) {
         $resultText = "Last=$($taskInfo.LastRunTime); Result=$($taskInfo.LastTaskResult); Next=$($taskInfo.NextRunTime)"
