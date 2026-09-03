@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 $remediationResultPath = Join-Path $InstallDirectory 'RemediationResult.json'
 
 function Add-Issue {
-    param([Parameter(Mandatory)][Collections.Generic.List[string]]$Issues, [Parameter(Mandatory)][string]$Value)
+    param([Parameter(Mandatory)][AllowEmptyCollection()][Collections.Generic.List[string]]$Issues, [Parameter(Mandatory)][string]$Value)
     if ($Issues.Contains($Value)) { return }
     $Issues.Add($Value)
 }
@@ -24,7 +24,7 @@ function Get-TargetPath {
 }
 
 function Test-TaskDefinitions {
-    param([Parameter(Mandatory)][Collections.Generic.List[string]]$Issues)
+    param([Parameter(Mandatory)][AllowEmptyCollection()][Collections.Generic.List[string]]$Issues)
     $backend = Get-ScheduledTask -TaskName 'Intune-SecurityFeatureMonitor' -ErrorAction SilentlyContinue
     if ($null -eq $backend) { Add-Issue -Issues $Issues -Value 'MissingTask:Backend' }
     if ($null -ne $backend -and [string]$backend.State -eq 'Disabled') { Add-Issue -Issues $Issues -Value 'DisabledTask:Backend' }
@@ -38,14 +38,17 @@ function Test-TaskDefinitions {
     if ($null -eq $ui) { Add-Issue -Issues $Issues -Value 'MissingTask:UI' }
     if ($null -ne $ui -and [string]$ui.State -eq 'Disabled') { Add-Issue -Issues $Issues -Value 'DisabledTask:UI' }
     $uiIdentity = if ($null -eq $ui) { '' } elseif (-not [string]::IsNullOrWhiteSpace([string]$ui.Principal.GroupId)) { [string]$ui.Principal.GroupId } else { [string]$ui.Principal.UserId }
-    if ($null -ne $ui -and $uiIdentity -notmatch '(?i)^(BUILTIN\\Users|Users|S-1-5-32-545)
-    if ($null -ne $ui -and ([string]$ui.Actions.Execute -notmatch '(?i)wscript\.exe
+    if ($null -ne $ui -and $uiIdentity -notmatch '(?i)^(BUILTIN\\Users|Users|S-1-5-32-545)$') { Add-Issue -Issues $Issues -Value 'InvalidTaskPrincipal:UI' }
+    if ($null -ne $ui -and [string]$ui.Principal.RunLevel -ne 'Limited') { Add-Issue -Issues $Issues -Value 'InvalidTaskRunLevel:UI' }
+    if ($null -ne $ui -and ([string]$ui.Actions.Execute -notmatch '(?i)wscript\.exe$' -or [string]$ui.Actions.Arguments -notmatch 'SecurityFeatureMonitor-UI-Launcher\.vbs')) { Add-Issue -Issues $Issues -Value 'InvalidTaskAction:UI' }
+    if ($null -ne $ui -and [string]$ui.Settings.MultipleInstances -ne 'StopExisting') { Add-Issue -Issues $Issues -Value 'InvalidMultipleInstances:UI' }
+    if ($null -ne $ui -and @($ui.Triggers).Count -ne 0) { Add-Issue -Issues $Issues -Value 'UnexpectedTrigger:UI' }
 }
 
 function Test-BackendSchedule {
     param(
         [Parameter(Mandatory)]$Backend,
-        [Parameter(Mandatory)][Collections.Generic.List[string]]$Issues
+        [Parameter(Mandatory)][AllowEmptyCollection()][Collections.Generic.List[string]]$Issues
     )
 
     $logonTriggers = @($Backend.Triggers | Where-Object { $_.CimClass.CimClassName -match 'LogonTrigger' })
@@ -83,7 +86,7 @@ function Get-RemediationResult {
 function Write-DetectionResult {
     param(
         [Parameter(Mandatory)][string]$Status,
-        [Parameter(Mandatory)][Collections.Generic.List[string]]$Issues,
+        [Parameter(Mandatory)][AllowEmptyCollection()][Collections.Generic.List[string]]$Issues,
         [AllowNull()]$Manifest,
         [AllowNull()]$Remediation
     )
@@ -137,240 +140,6 @@ if ($null -ne $manifest) {
 Test-TaskDefinitions -Issues $issues
 $backendTaskForSchedule = Get-ScheduledTask -TaskName 'Intune-SecurityFeatureMonitor' -ErrorAction SilentlyContinue
 if ($null -ne $backendTaskForSchedule) { Test-BackendSchedule -Backend $backendTaskForSchedule -Issues $issues }
-$remediation = Get-RemediationResult
-$actionableIssues = @($issues | Where-Object { $_ -ne 'ManifestUnavailable' })
-
-if ($actionableIssues.Count -gt 0) {
-    $status = if ($null -ne $remediation -and [string]$remediation.Status -eq 'RepairFailed') { 'RepairFailed' } else { 'IssueDetected' }
-    Write-DetectionResult -Status $status -Issues $issues -Manifest $manifest -Remediation $remediation
-    exit 1
-}
-
-$status = if ($null -ne $remediation -and [string]$remediation.Status -eq 'RepairCompleted') { 'RepairVerified' } elseif ($issues.Contains('ManifestUnavailable')) { 'HealthyOffline' } else { 'Healthy' }
-Write-DetectionResult -Status $status -Issues $issues -Manifest $manifest -Remediation $remediation
-exit 0
-) { Add-Issue -Issues $Issues -Value 'InvalidTaskPrincipal:UI' }
-    if ($null -ne $ui -and [string]$ui.Principal.RunLevel -ne 'Limited') { Add-Issue -Issues $Issues -Value 'InvalidTaskRunLevel:UI' }
-    if ($null -ne $ui -and ([string]$ui.Actions.Execute -notmatch '(?i)wscript\.exe$' -or [string]$ui.Actions.Arguments -notmatch 'SecurityFeatureMonitor-UI-Launcher\.vbs')) { Add-Issue -Issues $Issues -Value 'InvalidTaskAction:UI' }
-}
-
-function Get-RemediationResult {
-    if (-not (Test-Path -LiteralPath $remediationResultPath -PathType Leaf)) { return $null }
-    try { return Get-Content -LiteralPath $remediationResultPath -Raw | ConvertFrom-Json }
-    catch { return [PSCustomObject]@{ Status = 'UnreadableRemediationResult' } }
-    finally { Remove-Item -LiteralPath $remediationResultPath -Force -ErrorAction SilentlyContinue }
-}
-
-function Write-DetectionResult {
-    param(
-        [Parameter(Mandatory)][string]$Status,
-        [Parameter(Mandatory)][Collections.Generic.List[string]]$Issues,
-        [AllowNull()]$Manifest,
-        [AllowNull()]$Remediation
-    )
-    $result = [ordered]@{
-        Schema = 1
-        Utc = (Get-Date).ToUniversalTime().ToString('o')
-        Status = $Status
-        Version = if ($null -eq $Manifest) { $null } else { [string]$Manifest.Version }
-        Issues = @($Issues)
-    }
-    if ($null -ne $Remediation) { $result.Remediation = [string]$Remediation.Status }
-    Write-Output ($result | ConvertTo-Json -Compress -Depth 5)
-}
-
-$issues = [Collections.Generic.List[string]]::new()
-$manifest = $null
-try {
-    $manifest = Invoke-RestMethod -Uri "$($RepositoryRawBaseUrl.TrimEnd('/'))/$ManifestName" -UseBasicParsing -ErrorAction Stop
-}
-catch {
-    Add-Issue -Issues $issues -Value 'ManifestUnavailable'
-}
-
-$requiredFallback = @(
-    (Join-Path $InstallDirectory 'SecurityFeatureMonitor-Backend.cached.ps1'),
-    (Join-Path $InstallDirectory 'Staging\Install-SecurityFeatureMonitor.ps1'),
-    (Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI.ps1'),
-    (Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI-Launcher.vbs'),
-    (Join-Path $InstallDirectory 'Set-SecurityFeatureMonitorTestMode.ps1'),
-    (Join-Path $InstallDirectory 'Version.txt'),
-    (Join-Path $InstallDirectory 'manifest.json'),
-    (Join-Path $InstallDirectory 'media\bip.wav'),
-    (Join-Path $InstallDirectory 'media\alarm.mp3')
-)
-foreach ($path in $requiredFallback) {
-    if (Test-Path -LiteralPath $path -PathType Leaf) { continue }
-    Add-Issue -Issues $issues -Value "MissingFile:$([IO.Path]::GetFileName($path))"
-}
-
-if ($null -ne $manifest) {
-    foreach ($file in $manifest.Files) {
-        $targetPath = Get-TargetPath -File $file
-        if ($null -eq $targetPath) { continue }
-        if (-not (Test-Path -LiteralPath $targetPath -PathType Leaf)) { continue }
-        if ((Get-FileHash -LiteralPath $targetPath -Algorithm SHA256).Hash -eq [string]$file.Sha256) { continue }
-        Add-Issue -Issues $issues -Value "HashMismatch:$([string]$file.Destination)"
-    }
-}
-
-Test-TaskDefinitions -Issues $issues
-$remediation = Get-RemediationResult
-$actionableIssues = @($issues | Where-Object { $_ -ne 'ManifestUnavailable' })
-
-if ($actionableIssues.Count -gt 0) {
-    $status = if ($null -ne $remediation -and [string]$remediation.Status -eq 'RepairFailed') { 'RepairFailed' } else { 'IssueDetected' }
-    Write-DetectionResult -Status $status -Issues $issues -Manifest $manifest -Remediation $remediation
-    exit 1
-}
-
-$status = if ($null -ne $remediation -and [string]$remediation.Status -eq 'RepairCompleted') { 'RepairVerified' } elseif ($issues.Contains('ManifestUnavailable')) { 'HealthyOffline' } else { 'Healthy' }
-Write-DetectionResult -Status $status -Issues $issues -Manifest $manifest -Remediation $remediation
-exit 0
- -or [string]$ui.Actions.Arguments -notmatch 'SecurityFeatureMonitor-UI-Launcher\.vbs')) { Add-Issue -Issues $Issues -Value 'InvalidTaskAction:UI' }
-    if ($null -ne $ui -and [string]$ui.Settings.MultipleInstances -ne 'StopExisting') { Add-Issue -Issues $Issues -Value 'InvalidMultipleInstances:UI' }
-    if ($null -ne $ui -and @($ui.Triggers).Count -ne 0) { Add-Issue -Issues $Issues -Value 'UnexpectedTrigger:UI' }
-}
-
-function Get-RemediationResult {
-    if (-not (Test-Path -LiteralPath $remediationResultPath -PathType Leaf)) { return $null }
-    try { return Get-Content -LiteralPath $remediationResultPath -Raw | ConvertFrom-Json }
-    catch { return [PSCustomObject]@{ Status = 'UnreadableRemediationResult' } }
-    finally { Remove-Item -LiteralPath $remediationResultPath -Force -ErrorAction SilentlyContinue }
-}
-
-function Write-DetectionResult {
-    param(
-        [Parameter(Mandatory)][string]$Status,
-        [Parameter(Mandatory)][Collections.Generic.List[string]]$Issues,
-        [AllowNull()]$Manifest,
-        [AllowNull()]$Remediation
-    )
-    $result = [ordered]@{
-        Schema = 1
-        Utc = (Get-Date).ToUniversalTime().ToString('o')
-        Status = $Status
-        Version = if ($null -eq $Manifest) { $null } else { [string]$Manifest.Version }
-        Issues = @($Issues)
-    }
-    if ($null -ne $Remediation) { $result.Remediation = [string]$Remediation.Status }
-    Write-Output ($result | ConvertTo-Json -Compress -Depth 5)
-}
-
-$issues = [Collections.Generic.List[string]]::new()
-$manifest = $null
-try {
-    $manifest = Invoke-RestMethod -Uri "$($RepositoryRawBaseUrl.TrimEnd('/'))/$ManifestName" -UseBasicParsing -ErrorAction Stop
-}
-catch {
-    Add-Issue -Issues $issues -Value 'ManifestUnavailable'
-}
-
-$requiredFallback = @(
-    (Join-Path $InstallDirectory 'SecurityFeatureMonitor-Backend.cached.ps1'),
-    (Join-Path $InstallDirectory 'Staging\Install-SecurityFeatureMonitor.ps1'),
-    (Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI.ps1'),
-    (Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI-Launcher.vbs'),
-    (Join-Path $InstallDirectory 'Set-SecurityFeatureMonitorTestMode.ps1'),
-    (Join-Path $InstallDirectory 'Version.txt'),
-    (Join-Path $InstallDirectory 'manifest.json'),
-    (Join-Path $InstallDirectory 'media\bip.wav'),
-    (Join-Path $InstallDirectory 'media\alarm.mp3')
-)
-foreach ($path in $requiredFallback) {
-    if (Test-Path -LiteralPath $path -PathType Leaf) { continue }
-    Add-Issue -Issues $issues -Value "MissingFile:$([IO.Path]::GetFileName($path))"
-}
-
-if ($null -ne $manifest) {
-    foreach ($file in $manifest.Files) {
-        $targetPath = Get-TargetPath -File $file
-        if ($null -eq $targetPath) { continue }
-        if (-not (Test-Path -LiteralPath $targetPath -PathType Leaf)) { continue }
-        if ((Get-FileHash -LiteralPath $targetPath -Algorithm SHA256).Hash -eq [string]$file.Sha256) { continue }
-        Add-Issue -Issues $issues -Value "HashMismatch:$([string]$file.Destination)"
-    }
-}
-
-Test-TaskDefinitions -Issues $issues
-$remediation = Get-RemediationResult
-$actionableIssues = @($issues | Where-Object { $_ -ne 'ManifestUnavailable' })
-
-if ($actionableIssues.Count -gt 0) {
-    $status = if ($null -ne $remediation -and [string]$remediation.Status -eq 'RepairFailed') { 'RepairFailed' } else { 'IssueDetected' }
-    Write-DetectionResult -Status $status -Issues $issues -Manifest $manifest -Remediation $remediation
-    exit 1
-}
-
-$status = if ($null -ne $remediation -and [string]$remediation.Status -eq 'RepairCompleted') { 'RepairVerified' } elseif ($issues.Contains('ManifestUnavailable')) { 'HealthyOffline' } else { 'Healthy' }
-Write-DetectionResult -Status $status -Issues $issues -Manifest $manifest -Remediation $remediation
-exit 0
-) { Add-Issue -Issues $Issues -Value 'InvalidTaskPrincipal:UI' }
-    if ($null -ne $ui -and [string]$ui.Principal.RunLevel -ne 'Limited') { Add-Issue -Issues $Issues -Value 'InvalidTaskRunLevel:UI' }
-    if ($null -ne $ui -and ([string]$ui.Actions.Execute -notmatch '(?i)wscript\.exe$' -or [string]$ui.Actions.Arguments -notmatch 'SecurityFeatureMonitor-UI-Launcher\.vbs')) { Add-Issue -Issues $Issues -Value 'InvalidTaskAction:UI' }
-}
-
-function Get-RemediationResult {
-    if (-not (Test-Path -LiteralPath $remediationResultPath -PathType Leaf)) { return $null }
-    try { return Get-Content -LiteralPath $remediationResultPath -Raw | ConvertFrom-Json }
-    catch { return [PSCustomObject]@{ Status = 'UnreadableRemediationResult' } }
-    finally { Remove-Item -LiteralPath $remediationResultPath -Force -ErrorAction SilentlyContinue }
-}
-
-function Write-DetectionResult {
-    param(
-        [Parameter(Mandatory)][string]$Status,
-        [Parameter(Mandatory)][Collections.Generic.List[string]]$Issues,
-        [AllowNull()]$Manifest,
-        [AllowNull()]$Remediation
-    )
-    $result = [ordered]@{
-        Schema = 1
-        Utc = (Get-Date).ToUniversalTime().ToString('o')
-        Status = $Status
-        Version = if ($null -eq $Manifest) { $null } else { [string]$Manifest.Version }
-        Issues = @($Issues)
-    }
-    if ($null -ne $Remediation) { $result.Remediation = [string]$Remediation.Status }
-    Write-Output ($result | ConvertTo-Json -Compress -Depth 5)
-}
-
-$issues = [Collections.Generic.List[string]]::new()
-$manifest = $null
-try {
-    $manifest = Invoke-RestMethod -Uri "$($RepositoryRawBaseUrl.TrimEnd('/'))/$ManifestName" -UseBasicParsing -ErrorAction Stop
-}
-catch {
-    Add-Issue -Issues $issues -Value 'ManifestUnavailable'
-}
-
-$requiredFallback = @(
-    (Join-Path $InstallDirectory 'SecurityFeatureMonitor-Backend.cached.ps1'),
-    (Join-Path $InstallDirectory 'Staging\Install-SecurityFeatureMonitor.ps1'),
-    (Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI.ps1'),
-    (Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI-Launcher.vbs'),
-    (Join-Path $InstallDirectory 'Set-SecurityFeatureMonitorTestMode.ps1'),
-    (Join-Path $InstallDirectory 'Version.txt'),
-    (Join-Path $InstallDirectory 'manifest.json'),
-    (Join-Path $InstallDirectory 'media\bip.wav'),
-    (Join-Path $InstallDirectory 'media\alarm.mp3')
-)
-foreach ($path in $requiredFallback) {
-    if (Test-Path -LiteralPath $path -PathType Leaf) { continue }
-    Add-Issue -Issues $issues -Value "MissingFile:$([IO.Path]::GetFileName($path))"
-}
-
-if ($null -ne $manifest) {
-    foreach ($file in $manifest.Files) {
-        $targetPath = Get-TargetPath -File $file
-        if ($null -eq $targetPath) { continue }
-        if (-not (Test-Path -LiteralPath $targetPath -PathType Leaf)) { continue }
-        if ((Get-FileHash -LiteralPath $targetPath -Algorithm SHA256).Hash -eq [string]$file.Sha256) { continue }
-        Add-Issue -Issues $issues -Value "HashMismatch:$([string]$file.Destination)"
-    }
-}
-
-Test-TaskDefinitions -Issues $issues
 $remediation = Get-RemediationResult
 $actionableIssues = @($issues | Where-Object { $_ -ne 'ManifestUnavailable' })
 
