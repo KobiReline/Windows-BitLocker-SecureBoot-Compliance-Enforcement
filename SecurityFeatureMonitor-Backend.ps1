@@ -25,6 +25,14 @@ $script:UpdaterPath = Join-Path $InstallPath 'Update-SecurityFeatureMonitor.ps1'
 $script:BeepSha256 = $null
 $script:AlarmSha256 = $null
 
+function Set-StopExistingTaskPolicy {
+    param([Parameter(Mandatory)][string]$TaskName)
+    [xml]$definition = Export-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+    $definition.Task.Settings.MultipleInstancesPolicy = 'StopExisting'
+    Register-ScheduledTask -TaskName $TaskName -Xml $definition.OuterXml -Force | Out-Null
+    Enable-ScheduledTask -TaskName $TaskName | Out-Null
+}
+
 function Assert-Administrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = [Security.Principal.WindowsPrincipal]::new($identity)
@@ -334,8 +342,6 @@ function Set-BackendScheduledTask {
     $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments
     $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-    # Task Scheduler supports StopExisting (3), but the cmdlet enum omits it.
-    $settings.CimInstanceProperties['MultipleInstances'].Value = [uint32]3
     $logonTrigger = New-ScheduledTaskTrigger -AtLogOn
     $triggers = if ($Zone -in @('Healthy', 'Excluded')) {
         @((New-ScheduledTaskTrigger -Daily -At '12:00'), $logonTrigger)
@@ -344,7 +350,7 @@ function Set-BackendScheduledTask {
         @((New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes($minutes) -RepetitionInterval (New-TimeSpan -Minutes $minutes)), $logonTrigger)
     }
     Register-ScheduledTask -TaskName $BackendTaskName -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Force | Out-Null
-    Enable-ScheduledTask -TaskName $BackendTaskName | Out-Null
+    Set-StopExistingTaskPolicy -TaskName $BackendTaskName | Out-Null
 }
 
 function Invoke-BackendPipeline {

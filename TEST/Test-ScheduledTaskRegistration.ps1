@@ -5,7 +5,7 @@ if ($env:GITHUB_ACTIONS -ne 'true') { throw 'Run this integration test only on t
 
 # Load registration functions without executing the installer or backend pipeline.
 foreach ($source in @(
-    @{ File = 'Install-SecurityFeatureMonitor.ps1'; Names = @('Register-BackendTask', 'Register-UserInterfaceTask') },
+    @{ File = 'Install-SecurityFeatureMonitor.ps1'; Names = @('Register-BackendTask', 'Register-UserInterfaceTask', 'Set-StopExistingTaskPolicy') },
     @{ File = 'SecurityFeatureMonitor-Backend.ps1'; Names = @('Set-BackendScheduledTask', 'Get-NextIntervalMinutes', 'Test-TaskRepairRequired') }
 )) {
     $tokens = $null
@@ -30,6 +30,7 @@ foreach ($name in $taskNames) {
 function Assert-RegisteredTask {
     param([string]$Name)
     $task = Get-ScheduledTask -TaskName $Name -ErrorAction Stop
+    Write-Host "Instance value: $($task.Settings.MultipleInstances); numeric: $([int]$task.Settings.MultipleInstances)"
     if ([int]$task.Settings.MultipleInstances -ne 3) { throw "Wrong instance policy: $Name" }
     if ([string]$task.State -eq 'Disabled') { throw "Task remains disabled: $Name" }
     [xml]$xml = Export-ScheduledTask -TaskName $Name

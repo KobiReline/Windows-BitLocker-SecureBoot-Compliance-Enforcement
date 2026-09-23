@@ -9,6 +9,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Set-StopExistingTaskPolicy {
+    param([Parameter(Mandatory)][string]$TaskName)
+    [xml]$definition = Export-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+    $definition.Task.Settings.MultipleInstancesPolicy = 'StopExisting'
+    Register-ScheduledTask -TaskName $TaskName -Xml $definition.OuterXml -Force | Out-Null
+    Enable-ScheduledTask -TaskName $TaskName | Out-Null
+}
+
 function Assert-SystemOrAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     if ($identity.User.Value -eq 'S-1-5-18') { return }
@@ -77,11 +85,9 @@ function Register-UserInterfaceTask {
     $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "//B //NoLogo `"$launcherPath`""
     $principal = New-ScheduledTaskPrincipal -GroupId 'BUILTIN\Users' -RunLevel Limited
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 1)
-    # Task Scheduler supports StopExisting (3), but the cmdlet enum omits it.
-    $settings.CimInstanceProperties['MultipleInstances'].Value = [uint32]3
     $task = New-ScheduledTask -Action $action -Principal $principal -Settings $settings
     Register-ScheduledTask -TaskName 'SecurityFeatureMonitor-UI' -InputObject $task -Force | Out-Null
-    Enable-ScheduledTask -TaskName 'SecurityFeatureMonitor-UI' | Out-Null
+    Set-StopExistingTaskPolicy -TaskName 'SecurityFeatureMonitor-UI' | Out-Null
 }
 
 function Register-BackendTask {
@@ -93,10 +99,8 @@ function Register-BackendTask {
         (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Hours 1))
     )
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-    # Task Scheduler supports StopExisting (3), but the cmdlet enum omits it.
-    $settings.CimInstanceProperties['MultipleInstances'].Value = [uint32]3
     Register-ScheduledTask -TaskName 'Intune-SecurityFeatureMonitor' -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Force | Out-Null
-    Enable-ScheduledTask -TaskName 'Intune-SecurityFeatureMonitor' | Out-Null
+    Set-StopExistingTaskPolicy -TaskName 'Intune-SecurityFeatureMonitor' | Out-Null
 }
 
 function Invoke-ImmediateComplianceCheck {
