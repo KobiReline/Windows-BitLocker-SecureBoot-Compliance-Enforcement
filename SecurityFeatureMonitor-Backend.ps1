@@ -25,6 +25,12 @@ $script:UpdaterPath = Join-Path $InstallPath 'Update-SecurityFeatureMonitor.ps1'
 $script:BeepSha256 = $null
 $script:AlarmSha256 = $null
 
+function Get-TaskInstancePolicy {
+    param([Parameter(Mandatory)]$Task)
+    [xml]$definition = Export-ScheduledTask -TaskName $Task.TaskName -TaskPath $Task.TaskPath -ErrorAction Stop
+    return [string]$definition.Task.Settings.MultipleInstancesPolicy
+}
+
 function Set-StopExistingTaskPolicy {
     param([Parameter(Mandatory)][string]$TaskName)
     [xml]$definition = Export-ScheduledTask -TaskName $TaskName -ErrorAction Stop
@@ -259,7 +265,7 @@ function Test-TaskRepairRequired {
     if ([string]$backend.Principal.RunLevel -ne 'Highest') { return $true }
     if ([string]$backend.Actions.Arguments -notmatch 'SecurityFeatureMonitor-Backend\.cached\.ps1') { return $true }
     if ([string]$backend.Actions.Arguments -notmatch 'InstallScheduledTask') { return $true }
-    if ([int]$backend.Settings.MultipleInstances -ne 3) { return $true }
+    if ((Get-TaskInstancePolicy -Task $backend) -ne 'StopExisting') { return $true }
 
     $ui = Get-ScheduledTask -TaskName 'SecurityFeatureMonitor-UI' -ErrorAction SilentlyContinue
     if ($null -eq $ui) { return $true }
@@ -267,7 +273,7 @@ function Test-TaskRepairRequired {
     $uiIdentity = if ([string]::IsNullOrWhiteSpace([string]$ui.Principal.GroupId)) { [string]$ui.Principal.UserId } else { [string]$ui.Principal.GroupId }
     if ($uiIdentity -notmatch '(?i)^(BUILTIN\\Users|Users|S-1-5-32-545)$') { return $true }
     if ([string]$ui.Actions.Arguments -notmatch 'SecurityFeatureMonitor-UI-Launcher\.vbs') { return $true }
-    if ([int]$ui.Settings.MultipleInstances -ne 3) { return $true }
+    if ((Get-TaskInstancePolicy -Task $ui) -ne 'StopExisting') { return $true }
     if (@($ui.Triggers).Count -ne 0) { return $true }
     return $false
 }

@@ -31,6 +31,12 @@ $script:Passed = 0
 $script:Warned = 0
 $script:Failed = 0
 
+function Get-TaskInstancePolicy {
+    param([Parameter(Mandatory)]$Task)
+    [xml]$definition = Export-ScheduledTask -TaskName $Task.TaskName -TaskPath $Task.TaskPath -ErrorAction Stop
+    return [string]$definition.Task.Settings.MultipleInstancesPolicy
+}
+
 function Write-TestResult {
     param(
         [Parameter(Mandatory)][ValidateSet('PASS', 'WARN', 'FAIL')][string]$Status,
@@ -103,7 +109,7 @@ foreach ($definition in @(
     if ($null -eq $task) { Write-TestResult FAIL $definition.Label 'Missing' "Scheduled task '$($definition.Name)' exists"; continue }
     Write-TestResult PASS $definition.Label $task.TaskName "Scheduled task '$($definition.Name)' exists"
     Test-Condition ([string]$task.State -ne 'Disabled') "$($definition.Label) enabled" ([string]$task.State) 'Not Disabled'
-    Test-Condition ([int]$task.Settings.MultipleInstances -eq 3) "$($definition.Label) instance policy" ([string]$task.Settings.MultipleInstances) '3 (StopExisting)'
+    Test-Condition ((Get-TaskInstancePolicy -Task $task) -eq 'StopExisting') "$($definition.Label) instance policy" (Get-TaskInstancePolicy -Task $task) 'StopExisting'
     $taskIdentity = if ([string]::IsNullOrWhiteSpace([string]$task.Principal.GroupId)) { [string]$task.Principal.UserId } else { [string]$task.Principal.GroupId }
     Test-Condition ($taskIdentity -match $definition.Identity) "$($definition.Label) identity" $taskIdentity $definition.Identity
     Test-Condition ([string]$task.Actions.Arguments -match $definition.Script) "$($definition.Label) action" ([string]$task.Actions.Arguments) $definition.Script
