@@ -48,7 +48,7 @@ function Test-TaskDefinitions {
     if ($null -ne $ui -and [string]$ui.Principal.RunLevel -ne 'Limited') { Add-Issue -Issues $Issues -Value 'InvalidTaskRunLevel:UI' }
     if ($null -ne $ui -and ([string]$ui.Actions.Execute -notmatch '(?i)wscript\.exe$' -or [string]$ui.Actions.Arguments -notmatch 'SecurityFeatureMonitor-UI-Launcher\.vbs')) { Add-Issue -Issues $Issues -Value 'InvalidTaskAction:UI' }
     if ($null -ne $ui -and (Get-TaskInstancePolicy -Task $ui) -ne 'StopExisting') { Add-Issue -Issues $Issues -Value 'InvalidMultipleInstances:UI' }
-    if ($null -ne $ui -and @($ui.Triggers).Count -ne 0) { Add-Issue -Issues $Issues -Value 'UnexpectedTrigger:UI' }
+    if ($null -ne $ui -and @($ui.Triggers | Where-Object { $null -ne $_ }).Count -ne 0) { Add-Issue -Issues $Issues -Value 'UnexpectedTrigger:UI' }
 }
 
 function Test-BackendSchedule {

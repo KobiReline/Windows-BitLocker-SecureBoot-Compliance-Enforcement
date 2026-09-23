@@ -96,7 +96,7 @@ function Assert-InstalledState {
     if ([string]$ui.Principal.RunLevel -ne 'Limited') { throw 'Post-install UI run-level verification failed.' }
     if ([string]$ui.Actions.Execute -notmatch '(?i)wscript\.exe$' -or [string]$ui.Actions.Arguments -notmatch 'SecurityFeatureMonitor-UI-Launcher\.vbs') { throw 'Post-install UI action verification failed.' }
     if ((Get-TaskInstancePolicy -Task $ui) -ne 'StopExisting') { throw 'Post-install UI instance policy verification failed.' }
-    if (@($ui.Triggers).Count -ne 0) { throw 'Post-install UI trigger verification failed.' }
+    if (@($ui.Triggers | Where-Object { $null -ne $_ }).Count -ne 0) { throw 'Post-install UI trigger verification failed.' }
 }
 
 function Write-RemediationResult {

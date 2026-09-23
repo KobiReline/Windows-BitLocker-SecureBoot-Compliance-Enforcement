@@ -274,7 +274,7 @@ function Test-TaskRepairRequired {
     if ($uiIdentity -notmatch '(?i)^(BUILTIN\\Users|Users|S-1-5-32-545)$') { return $true }
     if ([string]$ui.Actions.Arguments -notmatch 'SecurityFeatureMonitor-UI-Launcher\.vbs') { return $true }
     if ((Get-TaskInstancePolicy -Task $ui) -ne 'StopExisting') { return $true }
-    if (@($ui.Triggers).Count -ne 0) { return $true }
+    if (@($ui.Triggers | Where-Object { $null -ne $_ }).Count -ne 0) { return $true }
     return $false
 }
 

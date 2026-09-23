@@ -114,7 +114,7 @@ foreach ($definition in @(
     Test-Condition ($taskIdentity -match $definition.Identity) "$($definition.Label) identity" $taskIdentity $definition.Identity
     Test-Condition ([string]$task.Actions.Arguments -match $definition.Script) "$($definition.Label) action" ([string]$task.Actions.Arguments) $definition.Script
     if ($definition.Name -eq $UiTaskName) {
-        Test-Condition (@($task.Triggers).Count -eq 0) 'UI task trigger count' ([string]@($task.Triggers).Count) '0 (on-demand only)'
+        Test-Condition (@($task.Triggers | Where-Object { $null -ne $_ }).Count -eq 0) 'UI task trigger count' ([string]@($task.Triggers | Where-Object { $null -ne $_ }).Count) '0 (on-demand only)'
     }
     $taskInfo = Get-ScheduledTaskInfo -TaskName $definition.Name -ErrorAction SilentlyContinue
     if ($null -ne $taskInfo) {

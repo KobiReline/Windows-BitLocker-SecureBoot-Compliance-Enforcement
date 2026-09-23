@@ -47,7 +47,16 @@ try {
     Register-BackendTask
     Register-UserInterfaceTask
     foreach ($name in $taskNames) { Assert-RegisteredTask -Name $name }
-    if (Test-TaskRepairRequired) { throw 'Backend rejects freshly registered tasks.' }
+    if (Test-TaskRepairRequired) {
+        foreach ($name in $taskNames) {
+            Get-ScheduledTask -TaskName $name | ForEach-Object {
+                $_.Principal | Format-List *
+                $_.Actions | Format-List *
+                Write-Host "Non-null triggers: $(@($_.Triggers | Where-Object { $null -ne $_ }).Count)"
+            }
+        }
+        throw 'Backend rejects freshly registered tasks.'
+    }
     foreach ($zone in @('Healthy', 'Excluded', 'Warning', 'Critical', 'EncryptionInProgress')) {
         Set-BackendScheduledTask -Zone $zone
         Assert-RegisteredTask -Name $BackendTaskName
