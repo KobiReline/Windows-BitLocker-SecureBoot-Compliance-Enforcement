@@ -251,7 +251,7 @@ function Test-TaskRepairRequired {
     if ([string]$backend.Principal.RunLevel -ne 'Highest') { return $true }
     if ([string]$backend.Actions.Arguments -notmatch 'SecurityFeatureMonitor-Backend\.cached\.ps1') { return $true }
     if ([string]$backend.Actions.Arguments -notmatch 'InstallScheduledTask') { return $true }
-    if ([string]$backend.Settings.MultipleInstances -ne 'StopExisting') { return $true }
+    if ([int]$backend.Settings.MultipleInstances -ne 3) { return $true }
 
     $ui = Get-ScheduledTask -TaskName 'SecurityFeatureMonitor-UI' -ErrorAction SilentlyContinue
     if ($null -eq $ui) { return $true }
@@ -259,7 +259,7 @@ function Test-TaskRepairRequired {
     $uiIdentity = if ([string]::IsNullOrWhiteSpace([string]$ui.Principal.GroupId)) { [string]$ui.Principal.UserId } else { [string]$ui.Principal.GroupId }
     if ($uiIdentity -notmatch '(?i)^(BUILTIN\\Users|Users|S-1-5-32-545)$') { return $true }
     if ([string]$ui.Actions.Arguments -notmatch 'SecurityFeatureMonitor-UI-Launcher\.vbs') { return $true }
-    if ([string]$ui.Settings.MultipleInstances -ne 'StopExisting') { return $true }
+    if ([int]$ui.Settings.MultipleInstances -ne 3) { return $true }
     if (@($ui.Triggers).Count -ne 0) { return $true }
     return $false
 }
@@ -333,7 +333,9 @@ function Set-BackendScheduledTask {
     if ($TestScenario -ne 'None') { $arguments += " -TestScenario $TestScenario -TestAlertIntervalMinutes $TestAlertIntervalMinutes" }
     $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments
     $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances StopExisting
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+    # Task Scheduler supports StopExisting (3), but the cmdlet enum omits it.
+    $settings.CimInstanceProperties['MultipleInstances'].Value = [uint32]3
     $logonTrigger = New-ScheduledTaskTrigger -AtLogOn
     $triggers = if ($Zone -in @('Healthy', 'Excluded')) {
         @((New-ScheduledTaskTrigger -Daily -At '12:00'), $logonTrigger)
@@ -342,6 +344,7 @@ function Set-BackendScheduledTask {
         @((New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes($minutes) -RepetitionInterval (New-TimeSpan -Minutes $minutes)), $logonTrigger)
     }
     Register-ScheduledTask -TaskName $BackendTaskName -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Force | Out-Null
+    Enable-ScheduledTask -TaskName $BackendTaskName | Out-Null
 }
 
 function Invoke-BackendPipeline {

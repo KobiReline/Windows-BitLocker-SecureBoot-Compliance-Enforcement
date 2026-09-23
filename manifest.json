@@ -6,13 +6,13 @@
       "Source": "Install-SecurityFeatureMonitor.ps1",
       "Target": "Staging",
       "Destination": "Install-SecurityFeatureMonitor.ps1",
-      "Sha256": "85B51DBC4EA8A773F7FDCACC6DCEFBC33E72AFB15575E4D123D18DF376E2EB8D"
+      "Sha256": "113C1833FBC27D640EAB6E4A7095F1DA2B02B29537C7E239E611342A6DDEEBAF"
     },
     {
       "Source": "SecurityFeatureMonitor-Backend.ps1",
       "Target": "Install",
       "Destination": "SecurityFeatureMonitor-Backend.cached.ps1",
-      "Sha256": "8309C07EF82C725C361619A3286DE380848F4FE8B4A2E7F3DF5C0A9C57634A8A"
+      "Sha256": "CF8CA7398EAEA54F3AB0C97D67B0288D7634F77BB229DA1BA0D314E8D1E7A99E"
     },
     {
       "Source": "SecurityFeatureMonitor-UI.ps1",
@@ -30,7 +30,7 @@
       "Source": "Deploy-FromIntune.ps1",
       "Target": "Install",
       "Destination": "Update-SecurityFeatureMonitor.ps1",
-      "Sha256": "E403AA0FBDBA15CB737066D35A8D4A6FD708EBBB3D156A39332004548A7494CD"
+      "Sha256": "64FDE55113A6C812B42160A877AAD0B75FA46559223BE9BB051A1DB2D53F9F87"
     },
     {
       "Source": "Set-SecurityFeatureMonitorTestMode.ps1",

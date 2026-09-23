@@ -63,7 +63,7 @@ function Assert-InstalledState {
     if ([string]$backend.Principal.UserId -notin @('SYSTEM', 'NT AUTHORITY\SYSTEM')) { throw 'Post-install backend principal verification failed.' }
     if ([string]$backend.Principal.RunLevel -ne 'Highest') { throw 'Post-install backend run-level verification failed.' }
     if ([string]$backend.Actions.Arguments -notmatch 'SecurityFeatureMonitor-Backend\.cached\.ps1' -or [string]$backend.Actions.Arguments -notmatch 'InstallScheduledTask') { throw 'Post-install backend action verification failed.' }
-    if ([string]$backend.Settings.MultipleInstances -ne 'StopExisting') { throw 'Post-install backend instance policy verification failed.' }
+    if ([int]$backend.Settings.MultipleInstances -ne 3) { throw 'Post-install backend instance policy verification failed.' }
 
     $logonTriggers = @($backend.Triggers | Where-Object { $_.CimClass.CimClassName -match 'LogonTrigger' })
     $timeTriggers = @($backend.Triggers | Where-Object { $_.CimClass.CimClassName -notmatch 'LogonTrigger' })
@@ -89,7 +89,7 @@ function Assert-InstalledState {
     if ($uiIdentity -notmatch '(?i)^(BUILTIN\\Users|Users|S-1-5-32-545)$') { throw 'Post-install UI principal verification failed.' }
     if ([string]$ui.Principal.RunLevel -ne 'Limited') { throw 'Post-install UI run-level verification failed.' }
     if ([string]$ui.Actions.Execute -notmatch '(?i)wscript\.exe$' -or [string]$ui.Actions.Arguments -notmatch 'SecurityFeatureMonitor-UI-Launcher\.vbs') { throw 'Post-install UI action verification failed.' }
-    if ([string]$ui.Settings.MultipleInstances -ne 'StopExisting') { throw 'Post-install UI instance policy verification failed.' }
+    if ([int]$ui.Settings.MultipleInstances -ne 3) { throw 'Post-install UI instance policy verification failed.' }
     if (@($ui.Triggers).Count -ne 0) { throw 'Post-install UI trigger verification failed.' }
 }
 

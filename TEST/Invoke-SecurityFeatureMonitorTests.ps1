@@ -103,7 +103,7 @@ foreach ($definition in @(
     if ($null -eq $task) { Write-TestResult FAIL $definition.Label 'Missing' "Scheduled task '$($definition.Name)' exists"; continue }
     Write-TestResult PASS $definition.Label $task.TaskName "Scheduled task '$($definition.Name)' exists"
     Test-Condition ([string]$task.State -ne 'Disabled') "$($definition.Label) enabled" ([string]$task.State) 'Not Disabled'
-    Test-Condition ([string]$task.Settings.MultipleInstances -eq 'StopExisting') "$($definition.Label) instance policy" ([string]$task.Settings.MultipleInstances) 'StopExisting'
+    Test-Condition ([int]$task.Settings.MultipleInstances -eq 3) "$($definition.Label) instance policy" ([string]$task.Settings.MultipleInstances) '3 (StopExisting)'
     $taskIdentity = if ([string]::IsNullOrWhiteSpace([string]$task.Principal.GroupId)) { [string]$task.Principal.UserId } else { [string]$task.Principal.GroupId }
     Test-Condition ($taskIdentity -match $definition.Identity) "$($definition.Label) identity" $taskIdentity $definition.Identity
     Test-Condition ([string]$task.Actions.Arguments -match $definition.Script) "$($definition.Label) action" ([string]$task.Actions.Arguments) $definition.Script
@@ -142,3 +142,4 @@ Write-Host "PASS: $script:Passed  WARN: $script:Warned  FAIL: $script:Failed" -F
 if ($script:Failed) { Write-Host 'OVERALL: FAIL - run Intune Remediation and repeat this test.' -ForegroundColor Red; exit 1 }
 Write-Host 'OVERALL: PASS' -ForegroundColor Green
 exit 0
+

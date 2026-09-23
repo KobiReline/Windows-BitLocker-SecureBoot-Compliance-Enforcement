@@ -10,3 +10,6 @@ jobs:
       - name: Parse scripts and verify manifest with Windows PowerShell 5.1
         shell: powershell
         run: ./TEST/Test-RepositoryPayload.ps1
+      - name: Register tasks and verify StopExisting and disabled-task repair
+        shell: powershell
+        run: ./TEST/Test-ScheduledTaskRegistration.ps1

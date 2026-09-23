@@ -31,7 +31,7 @@ function Test-TaskDefinitions {
     if ($null -ne $backend -and [string]$backend.Principal.UserId -notin @('SYSTEM', 'NT AUTHORITY\SYSTEM')) { Add-Issue -Issues $Issues -Value 'InvalidTaskPrincipal:Backend' }
     if ($null -ne $backend -and [string]$backend.Principal.RunLevel -ne 'Highest') { Add-Issue -Issues $Issues -Value 'InvalidTaskRunLevel:Backend' }
     if ($null -ne $backend -and ([string]$backend.Actions.Arguments -notmatch 'SecurityFeatureMonitor-Backend\.cached\.ps1' -or [string]$backend.Actions.Arguments -notmatch 'InstallScheduledTask')) { Add-Issue -Issues $Issues -Value 'InvalidTaskAction:Backend' }
-    if ($null -ne $backend -and [string]$backend.Settings.MultipleInstances -ne 'StopExisting') { Add-Issue -Issues $Issues -Value 'InvalidMultipleInstances:Backend' }
+    if ($null -ne $backend -and [int]$backend.Settings.MultipleInstances -ne 3) { Add-Issue -Issues $Issues -Value 'InvalidMultipleInstances:Backend' }
     if ($null -ne $backend -and @($backend.Triggers | Where-Object { $_.CimClass.CimClassName -match 'LogonTrigger' }).Count -eq 0) { Add-Issue -Issues $Issues -Value 'MissingLogonTrigger:Backend' }
 
     $ui = Get-ScheduledTask -TaskName 'SecurityFeatureMonitor-UI' -ErrorAction SilentlyContinue
@@ -41,7 +41,7 @@ function Test-TaskDefinitions {
     if ($null -ne $ui -and $uiIdentity -notmatch '(?i)^(BUILTIN\\Users|Users|S-1-5-32-545)$') { Add-Issue -Issues $Issues -Value 'InvalidTaskPrincipal:UI' }
     if ($null -ne $ui -and [string]$ui.Principal.RunLevel -ne 'Limited') { Add-Issue -Issues $Issues -Value 'InvalidTaskRunLevel:UI' }
     if ($null -ne $ui -and ([string]$ui.Actions.Execute -notmatch '(?i)wscript\.exe$' -or [string]$ui.Actions.Arguments -notmatch 'SecurityFeatureMonitor-UI-Launcher\.vbs')) { Add-Issue -Issues $Issues -Value 'InvalidTaskAction:UI' }
-    if ($null -ne $ui -and [string]$ui.Settings.MultipleInstances -ne 'StopExisting') { Add-Issue -Issues $Issues -Value 'InvalidMultipleInstances:UI' }
+    if ($null -ne $ui -and [int]$ui.Settings.MultipleInstances -ne 3) { Add-Issue -Issues $Issues -Value 'InvalidMultipleInstances:UI' }
     if ($null -ne $ui -and @($ui.Triggers).Count -ne 0) { Add-Issue -Issues $Issues -Value 'UnexpectedTrigger:UI' }
 }
 
