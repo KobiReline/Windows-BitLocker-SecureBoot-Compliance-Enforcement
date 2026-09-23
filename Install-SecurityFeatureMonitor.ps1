@@ -24,6 +24,25 @@ function Initialize-Directories {
     }
 }
 
+function Assert-SourcePayload {
+    $manifest = Get-Content -LiteralPath (Join-Path $SourceDirectory 'manifest.json') -Raw | ConvertFrom-Json
+    foreach ($entry in $manifest.Files) {
+        $path = Join-Path $SourceDirectory ([string]$entry.Source)
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing payload: $($entry.Source)" }
+        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne [string]$entry.Sha256) {
+            throw "Payload hash mismatch: $($entry.Source)"
+        }
+        if ([IO.Path]::GetExtension($path) -ne '.ps1') { continue }
+        $tokens = $null
+        $parseErrors = $null
+        [Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$parseErrors) | Out-Null
+        if ($parseErrors.Count -gt 0) {
+            $details = ($parseErrors | ForEach-Object { "Line $($_.Extent.StartLineNumber): $($_.Message)" }) -join '; '
+            throw "Payload syntax error in $($entry.Source): $details"
+        }
+    }
+}
+
 function Install-Files {
     $mapping = @(
         @{ Source = 'SecurityFeatureMonitor-UI.ps1'; Destination = (Join-Path $InstallDirectory 'SecurityFeatureMonitor-UI.ps1') },
@@ -76,18 +95,35 @@ function Register-BackendTask {
 
 function Invoke-ImmediateComplianceCheck {
     $backendPath = Join-Path $InstallDirectory 'SecurityFeatureMonitor-Backend.cached.ps1'
-    $arguments = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $backendPath, '-InstallScheduledTask')
+    $arguments = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $backendPath), '-InstallScheduledTask', '-SkipSelfUpdate')
     if ($RecoveryMode) { $arguments += '-SuppressAudioOnce' }
-    $process = Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
-    if ($process.ExitCode -notin @(0, 1)) { throw "Backend immediate check failed with exit code $($process.ExitCode)." }
+    $stdout = Join-Path $StateDirectory 'Backend-install.stdout.log'
+    $stderr = Join-Path $StateDirectory 'Backend-install.stderr.log'
+    $process = Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    if ($process.ExitCode -ne 0) {
+        $details = Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue
+        throw "Backend immediate check failed with exit code $($process.ExitCode). $details"
+    }
 }
 
-Assert-SystemOrAdministrator
-Initialize-Directories
-Install-Files
-Set-SecureAcls
-Register-BackendTask
-Register-UserInterfaceTask
-Invoke-ImmediateComplianceCheck
-Write-Output "Security Feature Monitor version $Version installed successfully."
-exit 0
+try {
+    Assert-SystemOrAdministrator
+    Assert-SourcePayload
+    Initialize-Directories
+    Install-Files
+    Set-SecureAcls
+    Register-BackendTask
+    Register-UserInterfaceTask
+    Invoke-ImmediateComplianceCheck
+    Remove-Item -LiteralPath (Join-Path $StateDirectory 'Installer-error.log') -Force -ErrorAction SilentlyContinue
+    Write-Output "Security Feature Monitor version $Version installed successfully."
+    exit 0
+}
+catch {
+    $failure = "$( [datetime]::UtcNow.ToString('o') )`r`n$($_ | Out-String)"
+    if (Test-Path -LiteralPath $StateDirectory -PathType Container) {
+        $failure | Set-Content -LiteralPath (Join-Path $StateDirectory 'Installer-error.log') -Encoding UTF8
+    }
+    [Console]::Error.WriteLine($failure)
+    exit 1
+}

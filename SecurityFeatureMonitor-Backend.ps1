@@ -9,6 +9,7 @@ param(
     [string]$TestScenario = 'None',
     [ValidateRange(1, 1440)][int]$TestAlertIntervalMinutes = 1,
     [switch]$SuppressAudioOnce,
+    [switch]$SkipSelfUpdate,
     [switch]$InstallScheduledTask
 )
 
@@ -203,7 +204,7 @@ function Save-ComplianceState {
         ResumeZone = $ResumeZone
         SecureBoot = $SecureBoot
         BitLocker = $BitLocker
-        FirstFailureUtc = if ($null -eq $FirstFailureTime) { $null } else { $FirstFailureTime.Value.ToUniversalTime().ToString('o') }
+        FirstFailureUtc = if ($null -eq $FirstFailureTime) { $null } else { $FirstFailureTime.ToUniversalTime().ToString('o') }
         AlertIntervalMinutes = $interval
         MinimizeWindows = (($Zone -in @('Warning', 'Critical')) -and -not $SuppressAlerts)
         MaximizeVolume = ($Zone -eq 'Critical')
@@ -256,230 +257,7 @@ function Test-TaskRepairRequired {
     if ($null -eq $ui) { return $true }
     if ([string]$ui.State -eq 'Disabled') { return $true }
     $uiIdentity = if ([string]::IsNullOrWhiteSpace([string]$ui.Principal.GroupId)) { [string]$ui.Principal.UserId } else { [string]$ui.Principal.GroupId }
-    if ($uiIdentity -notmatch '(?i)^(BUILTIN\\Users|Users|S-1-5-32-545)
-    param([Parameter(Mandatory)][string]$Url, [Parameter(Mandatory)][string]$Destination, [Parameter(Mandatory)][string]$ExpectedSha256)
-    if (Test-FileHashMatch -Path $Destination -ExpectedSha256 $ExpectedSha256) { return $true }
-    $temporaryPath = "$Destination.download"
-    try {
-        Invoke-WebRequest -Uri $Url -OutFile $temporaryPath -UseBasicParsing -ErrorAction Stop
-        if (-not (Test-FileHashMatch -Path $temporaryPath -ExpectedSha256 $ExpectedSha256)) { throw 'Downloaded asset hash validation failed.' }
-        Move-Item -LiteralPath $temporaryPath -Destination $Destination -Force
-        return $true
-    }
-    catch {
-        Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
-        Write-Warning "Asset download failed; cached local assets remain available. $($_.Exception.Message)"
-        return $false
-    }
-}
-
-function Initialize-AudioAssets {
-    if (-not (Test-Path -LiteralPath $script:ManifestPath -PathType Leaf)) {
-        Write-Warning 'Local manifest is unavailable; audio validation and download were skipped.'
-        return
-    }
-    try { $manifest = Get-Content -LiteralPath $script:ManifestPath -Raw | ConvertFrom-Json -ErrorAction Stop }
-    catch { Write-Warning "Local manifest is invalid; audio validation and download were skipped. $($_.Exception.Message)"; return }
-    $beepEntry = @($manifest.Files | Where-Object { [string]$_.Source -eq 'media/bip.wav' }) | Select-Object -First 1
-    $alarmEntry = @($manifest.Files | Where-Object { [string]$_.Source -eq 'media/alarm.mp3' }) | Select-Object -First 1
-    if ($null -eq $beepEntry -or $null -eq $alarmEntry) { Write-Warning 'Audio entries are missing from the local manifest.'; return }
-    $script:BeepSha256 = [string]$beepEntry.Sha256
-    $script:AlarmSha256 = [string]$alarmEntry.Sha256
-    $baseUrl = $RepositoryRawBaseUrl.TrimEnd('/')
-    [void](Invoke-AssetDownload -Url "$baseUrl/media/bip.wav" -Destination $script:BeepPath -ExpectedSha256 $script:BeepSha256)
-    [void](Invoke-AssetDownload -Url "$baseUrl/media/alarm.mp3" -Destination $script:AlarmPath -ExpectedSha256 $script:AlarmSha256)
-}
-
-function Set-BackendScheduledTask {
-    param([Parameter(Mandatory)][string]$Zone)
-
-    $backendPath = $PSCommandPath
-    $arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$backendPath`" -RepositoryRawBaseUrl `"$RepositoryRawBaseUrl`" -InstallScheduledTask"
-    if ($TestScenario -ne 'None') { $arguments += " -TestScenario $TestScenario -TestAlertIntervalMinutes $TestAlertIntervalMinutes" }
-    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments
-    $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances StopExisting
-    $logonTrigger = New-ScheduledTaskTrigger -AtLogOn
-    $triggers = if ($Zone -in @('Healthy', 'Excluded')) {
-        @((New-ScheduledTaskTrigger -Daily -At '12:00'), $logonTrigger)
-    } else {
-        $minutes = Get-NextIntervalMinutes -Zone $Zone
-        @((New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $minutes)), $logonTrigger)
-    }
-    Register-ScheduledTask -TaskName $BackendTaskName -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Force | Out-Null
-}
-
-function Invoke-BackendPipeline {
-    Assert-Administrator
-    Initialize-BackendStorage
-    if (Invoke-SelfUpdate) { return 0 }
-    $script:EffectiveTestScenario = $TestScenario
-    $script:EffectiveTestAlertIntervalMinutes = $TestAlertIntervalMinutes
-    $script:EffectiveTestActivationId = [guid]::NewGuid().ToString()
-    Import-TestConfiguration
-    Initialize-AudioAssets
-
-    if ($script:EffectiveTestScenario -ne 'None') {
-        $testSecureBoot = $script:EffectiveTestScenario -eq 'Healthy'
-        $testBitLocker = $script:EffectiveTestScenario -eq 'Healthy'
-        $testFailureTime = if ($script:EffectiveTestScenario -in @('Warning', 'Critical')) { Get-Date } else { $null }
-        Save-ComplianceState -Zone $script:EffectiveTestScenario -SecureBoot $testSecureBoot -BitLocker $testBitLocker -FirstFailureTime $testFailureTime -IsTestMode $true
-        if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone $script:EffectiveTestScenario }
-        Start-UserInterfaceTask
-        return 0
-    }
-
-    if (Test-DeviceExcluded) {
-        Remove-FailureTracking
-        Save-ComplianceState -Zone Excluded -SecureBoot $true -BitLocker $true -FirstFailureTime $null
-        if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone Excluded }
-        Start-UserInterfaceTask
-        return 0
-    }
-
-    $secureBoot = Get-SecureBootState
-    $bitLockerStatus = Get-BitLockerStatus
-    if ($bitLockerStatus -eq 'EncryptionInProgress') {
-        $pause = Start-EncryptionPause
-        $firstFailure = if (Test-Path -LiteralPath $script:FailureTimePath -PathType Leaf) { Get-FailureTimestamp } else { $null }
-        Save-ComplianceState -Zone EncryptionInProgress -SecureBoot $secureBoot -BitLocker $false -FirstFailureTime $firstFailure -SuppressAlerts $true -ResumeZone ([string]$pause.ResumeZone)
-        if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone EncryptionInProgress }
-        Start-UserInterfaceTask
-        return 0
-    }
-
-    Resume-FailureClockAfterEncryption
-    $bitLocker = $bitLockerStatus -eq 'Protected'
-    if ($secureBoot -and $bitLocker) {
-        Remove-FailureTracking
-        Save-ComplianceState -Zone Healthy -SecureBoot $secureBoot -BitLocker $bitLocker -FirstFailureTime $null
-        if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone Healthy }
-        Start-UserInterfaceTask
-        return 0
-    }
-
-    $firstFailure = Get-FailureTimestamp
-    $zone = Get-ComplianceZone -HoursElapsed ((Get-Date) - $firstFailure).TotalHours
-    Save-ComplianceState -Zone $zone -SecureBoot $secureBoot -BitLocker $bitLocker -FirstFailureTime $firstFailure -IsRecoveryAlert ([bool]$SuppressAudioOnce)
-    if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone $zone }
-    Start-UserInterfaceTask
-    return 0
-}
-
-exit (Invoke-BackendPipeline)
-) { return $true }
-    if ([string]$ui.Principal.RunLevel -ne 'Limited') { return $true }
-    if ([string]$ui.Actions.Execute -notmatch '(?i)wscript\.exe
-    param([Parameter(Mandatory)][string]$Url, [Parameter(Mandatory)][string]$Destination, [Parameter(Mandatory)][string]$ExpectedSha256)
-    if (Test-FileHashMatch -Path $Destination -ExpectedSha256 $ExpectedSha256) { return $true }
-    $temporaryPath = "$Destination.download"
-    try {
-        Invoke-WebRequest -Uri $Url -OutFile $temporaryPath -UseBasicParsing -ErrorAction Stop
-        if (-not (Test-FileHashMatch -Path $temporaryPath -ExpectedSha256 $ExpectedSha256)) { throw 'Downloaded asset hash validation failed.' }
-        Move-Item -LiteralPath $temporaryPath -Destination $Destination -Force
-        return $true
-    }
-    catch {
-        Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
-        Write-Warning "Asset download failed; cached local assets remain available. $($_.Exception.Message)"
-        return $false
-    }
-}
-
-function Initialize-AudioAssets {
-    if (-not (Test-Path -LiteralPath $script:ManifestPath -PathType Leaf)) {
-        Write-Warning 'Local manifest is unavailable; audio validation and download were skipped.'
-        return
-    }
-    try { $manifest = Get-Content -LiteralPath $script:ManifestPath -Raw | ConvertFrom-Json -ErrorAction Stop }
-    catch { Write-Warning "Local manifest is invalid; audio validation and download were skipped. $($_.Exception.Message)"; return }
-    $beepEntry = @($manifest.Files | Where-Object { [string]$_.Source -eq 'media/bip.wav' }) | Select-Object -First 1
-    $alarmEntry = @($manifest.Files | Where-Object { [string]$_.Source -eq 'media/alarm.mp3' }) | Select-Object -First 1
-    if ($null -eq $beepEntry -or $null -eq $alarmEntry) { Write-Warning 'Audio entries are missing from the local manifest.'; return }
-    $script:BeepSha256 = [string]$beepEntry.Sha256
-    $script:AlarmSha256 = [string]$alarmEntry.Sha256
-    $baseUrl = $RepositoryRawBaseUrl.TrimEnd('/')
-    [void](Invoke-AssetDownload -Url "$baseUrl/media/bip.wav" -Destination $script:BeepPath -ExpectedSha256 $script:BeepSha256)
-    [void](Invoke-AssetDownload -Url "$baseUrl/media/alarm.mp3" -Destination $script:AlarmPath -ExpectedSha256 $script:AlarmSha256)
-}
-
-function Set-BackendScheduledTask {
-    param([Parameter(Mandatory)][string]$Zone)
-
-    $backendPath = $PSCommandPath
-    $arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$backendPath`" -RepositoryRawBaseUrl `"$RepositoryRawBaseUrl`" -InstallScheduledTask"
-    if ($TestScenario -ne 'None') { $arguments += " -TestScenario $TestScenario -TestAlertIntervalMinutes $TestAlertIntervalMinutes" }
-    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments
-    $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances StopExisting
-    $logonTrigger = New-ScheduledTaskTrigger -AtLogOn
-    $triggers = if ($Zone -in @('Healthy', 'Excluded')) {
-        @((New-ScheduledTaskTrigger -Daily -At '12:00'), $logonTrigger)
-    } else {
-        $minutes = Get-NextIntervalMinutes -Zone $Zone
-        @((New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $minutes)), $logonTrigger)
-    }
-    Register-ScheduledTask -TaskName $BackendTaskName -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Force | Out-Null
-}
-
-function Invoke-BackendPipeline {
-    Assert-Administrator
-    Initialize-BackendStorage
-    $script:EffectiveTestScenario = $TestScenario
-    $script:EffectiveTestAlertIntervalMinutes = $TestAlertIntervalMinutes
-    $script:EffectiveTestActivationId = [guid]::NewGuid().ToString()
-    Import-TestConfiguration
-    Initialize-AudioAssets
-
-    if ($script:EffectiveTestScenario -ne 'None') {
-        $testSecureBoot = $script:EffectiveTestScenario -eq 'Healthy'
-        $testBitLocker = $script:EffectiveTestScenario -eq 'Healthy'
-        $testFailureTime = if ($script:EffectiveTestScenario -in @('Warning', 'Critical')) { Get-Date } else { $null }
-        Save-ComplianceState -Zone $script:EffectiveTestScenario -SecureBoot $testSecureBoot -BitLocker $testBitLocker -FirstFailureTime $testFailureTime -IsTestMode $true
-        if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone $script:EffectiveTestScenario }
-        Start-UserInterfaceTask
-        return 0
-    }
-
-    if (Test-DeviceExcluded) {
-        Remove-FailureTracking
-        Save-ComplianceState -Zone Excluded -SecureBoot $true -BitLocker $true -FirstFailureTime $null
-        if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone Excluded }
-        Start-UserInterfaceTask
-        return 0
-    }
-
-    $secureBoot = Get-SecureBootState
-    $bitLockerStatus = Get-BitLockerStatus
-    if ($bitLockerStatus -eq 'EncryptionInProgress') {
-        $pause = Start-EncryptionPause
-        $firstFailure = if (Test-Path -LiteralPath $script:FailureTimePath -PathType Leaf) { Get-FailureTimestamp } else { $null }
-        Save-ComplianceState -Zone EncryptionInProgress -SecureBoot $secureBoot -BitLocker $false -FirstFailureTime $firstFailure -SuppressAlerts $true -ResumeZone ([string]$pause.ResumeZone)
-        if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone EncryptionInProgress }
-        Start-UserInterfaceTask
-        return 0
-    }
-
-    Resume-FailureClockAfterEncryption
-    $bitLocker = $bitLockerStatus -eq 'Protected'
-    if ($secureBoot -and $bitLocker) {
-        Remove-FailureTracking
-        Save-ComplianceState -Zone Healthy -SecureBoot $secureBoot -BitLocker $bitLocker -FirstFailureTime $null
-        if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone Healthy }
-        Start-UserInterfaceTask
-        return 0
-    }
-
-    $firstFailure = Get-FailureTimestamp
-    $zone = Get-ComplianceZone -HoursElapsed ((Get-Date) - $firstFailure).TotalHours
-    Save-ComplianceState -Zone $zone -SecureBoot $secureBoot -BitLocker $bitLocker -FirstFailureTime $firstFailure -IsRecoveryAlert ([bool]$SuppressAudioOnce)
-    if ($InstallScheduledTask) { Set-BackendScheduledTask -Zone $zone }
-    Start-UserInterfaceTask
-    return 0
-}
-
-exit (Invoke-BackendPipeline)
-) { return $true }
+    if ($uiIdentity -notmatch '(?i)^(BUILTIN\\Users|Users|S-1-5-32-545)$') { return $true }
     if ([string]$ui.Actions.Arguments -notmatch 'SecurityFeatureMonitor-UI-Launcher\.vbs') { return $true }
     if ([string]$ui.Settings.MultipleInstances -ne 'StopExisting') { return $true }
     if (@($ui.Triggers).Count -ne 0) { return $true }
@@ -561,7 +339,7 @@ function Set-BackendScheduledTask {
         @((New-ScheduledTaskTrigger -Daily -At '12:00'), $logonTrigger)
     } else {
         $minutes = Get-NextIntervalMinutes -Zone $Zone
-        @((New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $minutes)), $logonTrigger)
+        @((New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes($minutes) -RepetitionInterval (New-TimeSpan -Minutes $minutes)), $logonTrigger)
     }
     Register-ScheduledTask -TaskName $BackendTaskName -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Force | Out-Null
 }
@@ -573,6 +351,7 @@ function Invoke-BackendPipeline {
     $script:EffectiveTestAlertIntervalMinutes = $TestAlertIntervalMinutes
     $script:EffectiveTestActivationId = [guid]::NewGuid().ToString()
     Import-TestConfiguration
+    if (-not $SkipSelfUpdate -and (Invoke-SelfUpdate)) { return 0 }
     Initialize-AudioAssets
 
     if ($script:EffectiveTestScenario -ne 'None') {
@@ -623,3 +402,4 @@ function Invoke-BackendPipeline {
 }
 
 exit (Invoke-BackendPipeline)
+

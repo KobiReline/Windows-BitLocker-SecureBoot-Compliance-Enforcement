@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$RootPath = 'C:\ProgramData\SecurityFeatureMonitor\State',
     [switch]$ForceDisplay,
@@ -221,23 +221,9 @@ function Show-ComplianceDialog {
     $form.Controls.Add($nowButton)
 
     $shownHandler = { Start-AudioSequence -Sequence $AudioSequence }.GetNewClosure()
-    $complianceTimer = [Windows.Forms.Timer]::new()
-    $complianceTimer.Interval = 2000
-    $complianceHandler = {
-        $latestState = Get-MonitorState
-        if ($null -eq $latestState) { return }
-        if (-not [bool]$latestState.IsCompliant -and -not [bool]$latestState.SuppressAlerts) { return }
-        Close-AudioSequence -Sequence $AudioSequence
-        $form.Close()
-    }.GetNewClosure()
     $form.add_Shown($shownHandler)
-    $complianceTimer.add_Tick($complianceHandler)
-    $complianceTimer.Start()
     try { $result = $form.ShowDialog() }
     finally {
-        $complianceTimer.Stop()
-        $complianceTimer.remove_Tick($complianceHandler)
-        $complianceTimer.Dispose()
         $form.remove_Shown($shownHandler)
         $form.Dispose()
     }
@@ -263,3 +249,4 @@ function Invoke-UiPipeline {
 }
 
 exit (Invoke-UiPipeline)
+
