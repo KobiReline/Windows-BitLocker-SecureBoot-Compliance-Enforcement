@@ -50,5 +50,15 @@
       "Destination": "alarm.mp3",
       "Sha256": "6043D5644C97CB14AA457F9AC7988139F34F43EACA9ECB192B835239A1A70FC9"
     }
-  ]
+  ],
+  "EntryPoints": {
+    "Detection": {
+      "Source": "Detect-SecurityFeatureMonitor.ps1",
+      "Sha256": "65084C330F3B465F3AEE936ACEC5E8E359270AECD1DE6646E5BB98F3E24BAE77"
+    },
+    "Remediation": {
+      "Source": "Deploy-FromIntune.ps1",
+      "Sha256": "6F346D8247260CADB9955C2E0494F99F4E0B6C560298F3943DD6CA3A75780FCF"
+    }
+  }
 }

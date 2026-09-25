@@ -19,7 +19,7 @@ Get-ChildItem -LiteralPath $RepositoryPath -Filter '*.ps1' -Recurse -File | ForE
     }
 }
 $manifest = Get-Content -LiteralPath (Join-Path $RepositoryPath 'manifest.json') -Raw | ConvertFrom-Json
-foreach ($entry in $manifest.Files) {
+foreach ($entry in @($manifest.Files) + @($manifest.EntryPoints.Detection, $manifest.EntryPoints.Remediation)) {
     $path = Join-Path $RepositoryPath $entry.Source
     if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $entry.Sha256) {
         $failed = $true

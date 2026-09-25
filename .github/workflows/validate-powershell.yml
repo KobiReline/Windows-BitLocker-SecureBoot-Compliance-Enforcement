@@ -13,3 +13,6 @@ jobs:
       - name: Register tasks and verify StopExisting and disabled-task repair
         shell: powershell
         run: ./TEST/Test-ScheduledTaskRegistration.ps1
+      - name: Verify Intune entry-point streams, exit codes and failure handling
+        shell: powershell
+        run: ./TEST/Test-IntuneBootstrap.ps1

@@ -11,8 +11,25 @@ No Win32 app packaging or code-signing certificate is required by the current ve
 
 Create one Intune Remediations package and upload:
 
-- Detection script: `Detect-SecurityFeatureMonitor.ps1`
-- Remediation script: `Deploy-FromIntune.ps1`
+- Detection script: `Intune/Invoke-Detection.ps1`
+- Remediation script: `Intune/Invoke-Remediation.ps1`
+
+Upload these two stable entry points once. Do not upload the root-level detection/remediation implementations to Intune. Replace the previous uploads with these entry points when migrating an existing package.
+
+Each invocation (including post-remediation detection) resolves the current `main` commit, downloads its manifest and the selected implementation, verifies SHA-256 and parses it with Windows PowerShell before running it as a child process. The immutable commit URL is passed to the implementation, so its manifest and payload downloads use the same snapshot. Later invocations resolve `main` again; installed backend tasks continue to check `main` for updates.
+
+The entry points forward the child stdout, stderr and numeric exit code. They add no success messages. Detection exit 1 requests remediation; exit 0 means no detected installation issue. A bootstrap download, manifest, hash or syntax failure produces compact `BootstrapFailed` JSON and exit 2, never a healthy result. An uncaught child exception also returns exit 2. Intune limits reported output to 2,048 characters; keep implementation output compact. This does not add history retention beyond Intune's own reporting.
+
+Downloads use a unique temporary directory under `Staging`, writable/readable only by SYSTEM and Administrators, removed after execution. No stale downloaded script is used if fetching the latest snapshot fails. The existing local backend/UI tasks continue to operate offline. Public GitHub access, including `api.github.com` for commit resolution, must work as SYSTEM. GitHub API rate limiting or connectivity failure is reported as a bootstrap error.
+
+The manifest and SHA values are trusted from this repository over HTTPS; hashes validate payload consistency, not an independent code-signing identity. No token, tenant or employee identifier is included.
+
+### Publishing future fixes
+
+1. Update the implementation scripts in GitHub.
+2. Recalculate SHA-256 in `manifest.json`: `Files` for every changed payload, plus `EntryPoints.Detection` and/or `EntryPoints.Remediation` if those implementations changed. The remediation entry also appears in `Files`; both hashes must match.
+3. Publish code and manifest together in one commit after Windows CI passes. A version-number bump is not required for hash-based updates and requires approval.
+4. The next scheduled/on-demand Intune invocation fetches the new implementation. No Intune upload is needed for routine logic fixes. Upload new entry points only if their bootstrap contract, repository location or transport requirements change.
 
 Configure:
 
@@ -86,3 +103,4 @@ Both audio files are opened and prepared before the dialog is displayed. Playbac
 ## Integrity and self-update
 
 Every backend run compares all installed payload hashes with the remote manifest and validates both scheduled tasks. A verified local updater repairs changed files or task definitions. Intune Detection remains the external daily recovery layer when the backend task itself is deleted or disabled. Detection and remediation also reject disabled tasks, altered principals/actions, unexpected UI triggers, and an instance policy other than `StopExisting`. Remediation reports success only after post-install hashes and task definitions pass verification.
+
