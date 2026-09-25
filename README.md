@@ -62,7 +62,7 @@ BitLocker `EncryptionInProgress` suspends visual and audio alerts even if Secure
 
 The backend reads the media hashes from its installed copy of `manifest.json`; media hashes are not duplicated in backend source code.
 
-`Detect-SecurityFeatureMonitor.ps1` and `Deploy-FromIntune.ps1` are stable Intune bootstrap entry points. They are stored directly in the Intune Remediations package rather than installed on endpoints. Normal installer/backend/UI/launcher/test-mode/media changes are distributed through the manifest and GitHub and do not require editing Intune. Re-upload an Intune entry point only when its own detection or deployment protocol changes.
+`Intune/Invoke-Detection.ps1` and `Intune/Invoke-Remediation.ps1` are the stable scripts uploaded to Intune. Root-level `Detect-SecurityFeatureMonitor.ps1` and `Deploy-FromIntune.ps1` contain the updateable implementation; the latter is also installed as `Update-SecurityFeatureMonitor.ps1` for backend self-repair. Routine implementation changes need a matching manifest hash, not another Intune upload.
 
 ## Post-deployment tests
 

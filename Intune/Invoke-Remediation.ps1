@@ -56,10 +56,10 @@ function Invoke-IntuneBootstrap {
         $stage = 'Execute'
         $stdout = Join-Path $runDirectory 'stdout.txt'
         $stderr = Join-Path $runDirectory 'stderr.txt'
-        $command = "[Console]::OutputEncoding = [Text.UTF8Encoding]::new(); `$ErrorActionPreference = 'Stop'; `$global:LASTEXITCODE = 0; try { & '$($path.Replace("'", "''"))' -RepositoryRawBaseUrl '$baseUrl'; exit `$LASTEXITCODE } catch { [Console]::Error.WriteLine((`$_ | Out-String)); exit 2 }"
+        $command = "[Console]::OutputEncoding = [Text.UTF8Encoding]::new(); `$ErrorActionPreference = 'Stop'; `$ProgressPreference = 'SilentlyContinue'; `$global:LASTEXITCODE = 0; try { & '$($path.Replace("'", "''"))' -RepositoryRawBaseUrl '$baseUrl'; exit `$LASTEXITCODE } catch { [Console]::Error.WriteLine((`$_ | Out-String)); exit 2 }"
         $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
         $hostPath = Join-Path $PSHOME 'powershell.exe'
-        $process = Start-Process -FilePath $hostPath -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded) -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        $process = Start-Process -FilePath $hostPath -ArgumentList @('-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-InputFormat', 'Text', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded) -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
         [Console]::Out.Write([IO.File]::ReadAllText($stdout, [Text.Encoding]::UTF8))
         [Console]::Error.Write([IO.File]::ReadAllText($stderr, [Text.Encoding]::UTF8))
         return [int]$process.ExitCode
