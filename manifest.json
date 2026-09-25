@@ -54,7 +54,7 @@
   "EntryPoints": {
     "Detection": {
       "Source": "Detect-SecurityFeatureMonitor.ps1",
-      "Sha256": "65084C330F3B465F3AEE936ACEC5E8E359270AECD1DE6646E5BB98F3E24BAE77"
+      "Sha256": "EABBEDCBA3C21CAEB800911E8AFA7F1A54D8CF43C645499D7FC4D1B0F35E8E81"
     },
     "Remediation": {
       "Source": "Deploy-FromIntune.ps1",

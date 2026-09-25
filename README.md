@@ -104,3 +104,7 @@ Both audio files are opened and prepared before the dialog is displayed. Playbac
 
 Every backend run compares all installed payload hashes with the remote manifest and validates both scheduled tasks. A verified local updater repairs changed files or task definitions. Intune Detection remains the external daily recovery layer when the backend task itself is deleted or disabled. Detection and remediation also reject disabled tasks, altered principals/actions, unexpected UI triggers, and an instance policy other than `StopExisting`. Remediation reports success only after post-install hashes and task definitions pass verification.
 
+
+## Last remediation result
+
+`RemediationResult.json` is retained after detection reads it. It records the last remediation attempt, including its UTC timestamp, and is overwritten by the next remediation attempt. It is not a run history, and its presence does not prove that remediation ran during the current detection cycle. A file already deleted by an older detection script is recreated only when remediation runs again.

@@ -86,7 +86,6 @@ function Get-RemediationResult {
     if (-not (Test-Path -LiteralPath $remediationResultPath -PathType Leaf)) { return $null }
     try { return Get-Content -LiteralPath $remediationResultPath -Raw | ConvertFrom-Json }
     catch { return [PSCustomObject]@{ Status = 'UnreadableRemediationResult' } }
-    finally { Remove-Item -LiteralPath $remediationResultPath -Force -ErrorAction SilentlyContinue }
 }
 
 function Write-DetectionResult {
