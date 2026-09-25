@@ -18,7 +18,7 @@
       "Source": "SecurityFeatureMonitor-UI.ps1",
       "Target": "Install",
       "Destination": "SecurityFeatureMonitor-UI.ps1",
-      "Sha256": "C9F515B7AFF34C5A3A0633100E0943D7A462A41E29DB1FC99F80AB20EDB69007"
+      "Sha256": "9E0FDC830629415858ADB52E2E625165CB04E93F990D3C2E532543F63CAC00E2"
     },
     {
       "Source": "SecurityFeatureMonitor-UI-Launcher.vbs",

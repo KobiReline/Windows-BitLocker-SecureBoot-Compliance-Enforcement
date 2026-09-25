@@ -206,7 +206,7 @@ function Show-ComplianceDialog {
     $form.Controls.Add($label)
 
     $laterButton = [Windows.Forms.Button]::new()
-    $laterButton.Text = 'OK אני אפעיל מאוחר יותר'
+    $laterButton.Text = 'Remind me later'
     $laterButton.Location = [Drawing.Point]::new(40, 120)
     $laterButton.Size = [Drawing.Size]::new(190, 35)
     $laterButton.DialogResult = [Windows.Forms.DialogResult]::OK
@@ -214,7 +214,7 @@ function Show-ComplianceDialog {
     $form.Controls.Add($laterButton)
 
     $nowButton = [Windows.Forms.Button]::new()
-    $nowButton.Text = 'נכנע אני יפעיל עכשיו'
+    $nowButton.Text = "I'll enable it now"
     $nowButton.Location = [Drawing.Point]::new(250, 120)
     $nowButton.Size = [Drawing.Size]::new(190, 35)
     $nowButton.DialogResult = [Windows.Forms.DialogResult]::Cancel
@@ -232,8 +232,8 @@ function Show-ComplianceDialog {
         Start-Sleep -Milliseconds 25
     }
     if ($result -ne [Windows.Forms.DialogResult]::OK) { return }
-    $intervalText = if ([string]$State.Zone -eq 'Critical') { '5 דקות' } else { 'שעה' }
-    [void][Windows.Forms.MessageBox]::Show("אל תדאג אני אזכיר לך במקרה ותשכח בעוד $intervalText", 'Reminder Set', 'OK', 'Information')
+    $intervalText = if ([string]$State.Zone -eq 'Critical') { '5 minutes' } else { '1 hour' }
+    [void][Windows.Forms.MessageBox]::Show("You will be reminded again in $intervalText if the issue remains unresolved.", 'Reminder Set', 'OK', 'Information')
 }
 
 function Invoke-UiPipeline {
