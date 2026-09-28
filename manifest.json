@@ -18,13 +18,13 @@
       "Source": "SecurityFeatureMonitor-UI.ps1",
       "Target": "Install",
       "Destination": "SecurityFeatureMonitor-UI.ps1",
-      "Sha256": "9E0FDC830629415858ADB52E2E625165CB04E93F990D3C2E532543F63CAC00E2"
+      "Sha256": "60A50AF986BB0B7AF6CD4A00E463E464BF6DAC0F2EE56FB371229D05F90221D7"
     },
     {
       "Source": "SecurityFeatureMonitor-UI-Launcher.vbs",
       "Target": "Install",
       "Destination": "SecurityFeatureMonitor-UI-Launcher.vbs",
-      "Sha256": "CB3F2E1C8553123AACAC59D2678F63E3E5B97E5660D5F361DD826D4960745EEE"
+      "Sha256": "E85F2105C55AE7C97DCCAAED61C31BB3122F13725CECAC3645DFDA7F3D3FBB93"
     },
     {
       "Source": "Deploy-FromIntune.ps1",

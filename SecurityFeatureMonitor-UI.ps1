@@ -198,6 +198,8 @@ function Show-ComplianceDialog {
     $form.TopMost = $true
     $form.FormBorderStyle = 'FixedDialog'
     $form.MaximizeBox = $false
+    $form.ControlBox = $false
+    $dialogState = [PSCustomObject]@{ AllowClose = $false }
 
     $label = [Windows.Forms.Label]::new()
     $label.Text = [string]$State.AlertMessage
@@ -220,19 +222,41 @@ function Show-ComplianceDialog {
     $nowButton.DialogResult = [Windows.Forms.DialogResult]::Cancel
     $form.Controls.Add($nowButton)
 
-    $shownHandler = { Start-AudioSequence -Sequence $AudioSequence }.GetNewClosure()
+    $buttonHandler = { $dialogState.AllowClose = $true }.GetNewClosure()
+    $closingHandler = {
+        param($sender, $eventArgs)
+        if ($eventArgs.CloseReason -ne [Windows.Forms.CloseReason]::UserClosing) { return }
+        if ($dialogState.AllowClose) { return }
+        $eventArgs.Cancel = $true
+    }.GetNewClosure()
+    $laterButton.add_Click($buttonHandler)
+    $nowButton.add_Click($buttonHandler)
+    $form.add_FormClosing($closingHandler)
+    $shownHandler = {
+        $form.WindowState = [Windows.Forms.FormWindowState]::Normal
+        $form.BringToFront()
+        $form.Activate()
+        Start-AudioSequence -Sequence $AudioSequence
+    }.GetNewClosure()
     $form.add_Shown($shownHandler)
     try { $result = $form.ShowDialog() }
     finally {
         $form.remove_Shown($shownHandler)
+        $form.remove_FormClosing($closingHandler)
+        $laterButton.remove_Click($buttonHandler)
+        $nowButton.remove_Click($buttonHandler)
         $form.Dispose()
+    }
+    if ($result -eq [Windows.Forms.DialogResult]::Cancel -and $dialogState.AllowClose) {
+        [void][Windows.Forms.MessageBox]::Show('Now for your punishment: you must set a password with 120 characters.', 'One more thing', 'OK', 'Information')
+        [void][Windows.Forms.MessageBox]::Show('Just kidding!', 'Just kidding', 'OK', 'Information')
     }
     while ($null -ne $AudioSequence -and -not $AudioSequence.IsDisposed) {
         [Windows.Forms.Application]::DoEvents()
         Start-Sleep -Milliseconds 25
     }
     if ($result -ne [Windows.Forms.DialogResult]::OK) { return }
-    $intervalText = if ([string]$State.Zone -eq 'Critical') { '5 minutes' } else { '1 hour' }
+    $intervalText = '{0} minutes' -f [int]$State.AlertIntervalMinutes
     [void][Windows.Forms.MessageBox]::Show("You will be reminded again in $intervalText if the issue remains unresolved.", 'Reminder Set', 'OK', 'Information')
 }
 
